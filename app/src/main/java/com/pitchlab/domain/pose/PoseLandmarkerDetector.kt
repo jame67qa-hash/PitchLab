@@ -13,7 +13,7 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 /**
- * MediaPipe Pose 的薄封裝：只回傳「比較可信的那隻手腕」。
+ * MediaPipe Pose 的薄封裝：回傳一幀姿勢的關鍵點（肩／肘／腕／髖／踝）。
  *
  * 設計取捨：
  * - 用 [RunningMode.IMAGE] 而不是 LIVE_STREAM：Live stream 需要額外執行緒與時間戳單調性，
@@ -31,17 +31,15 @@ class PoseLandmarkerDetector @Inject constructor(
         private const val TAG = "PoseLandmarker"
         const val MODEL_ASSET = "pose_landmarker_lite.task"
 
-        /** MediaPipe Pose 33 點索引：左腕 15、右腕 16 */
-        private const val LEFT_WRIST = 15
-        private const val RIGHT_WRIST = 16
+        /** Phase 4 評分需要的關節：肩 11/12、肘 13/14、腕 15/16、髖 23/24、踝 27/28 */
+        private val SCORING_LANDMARKS = intArrayOf(
+            PoseIndices.LEFT_SHOULDER, PoseIndices.RIGHT_SHOULDER,
+            PoseIndices.LEFT_ELBOW, PoseIndices.RIGHT_ELBOW,
+            PoseIndices.LEFT_WRIST, PoseIndices.RIGHT_WRIST,
+            PoseIndices.LEFT_HIP, PoseIndices.RIGHT_HIP,
+            PoseIndices.LEFT_ANKLE, PoseIndices.RIGHT_ANKLE
+        )
     }
-
-    /** 一次姿態推論的手腕結果（歸一化影像座標 + 可見度） */
-    data class WristPoint(
-        val x: Double,
-        val y: Double,
-        val visibility: Double
-    )
 
     private var landmarker: PoseLandmarker? = null
     private var initAttempted = false
@@ -81,11 +79,11 @@ class PoseLandmarkerDetector @Inject constructor(
     }
 
     /**
-     * 對單一幀做姿態推論，回傳可見度較高的手腕。
+     * 對單一幀做姿態推論，回傳評分需要的關節點。
      * 必須在背景執行緒呼叫（IMAGE 模式是同步阻塞的）。
      */
     @WorkerThread
-    fun detectWrist(bitmap: Bitmap, timestampMs: Long): WristPoint? {
+    fun detectPose(bitmap: Bitmap, timestampMs: Long): PoseFrame? {
         ensureInitialized()
         val detector = landmarker ?: return null
         return try {
@@ -93,21 +91,19 @@ class PoseLandmarkerDetector @Inject constructor(
             val result = detector.detect(image)
             val landmarks = result.landmarks().firstOrNull() ?: return null
 
-            val left = landmarks.getOrNull(LEFT_WRIST)
-            val right = landmarks.getOrNull(RIGHT_WRIST)
-            val leftVisibility = left?.visibility()?.orElse(0f) ?: 0f
-            val rightVisibility = right?.visibility()?.orElse(0f) ?: 0f
-            val chosen = if (leftVisibility >= rightVisibility) left else right
-            if (chosen == null) return null
-            val vis = if (leftVisibility >= rightVisibility) leftVisibility else rightVisibility
-            if (vis < 0.3f) return null
-            WristPoint(
-                x = chosen.x().toDouble(),
-                y = chosen.y().toDouble(),
-                visibility = vis.toDouble()
-            )
+            val points = HashMap<Int, PosePoint>(SCORING_LANDMARKS.size)
+            for (index in SCORING_LANDMARKS) {
+                val landmark = landmarks.getOrNull(index) ?: continue
+                points[index] = PosePoint(
+                    x = landmark.x().toDouble(),
+                    y = landmark.y().toDouble(),
+                    visibility = (landmark.visibility()?.orElse(0f) ?: 0f).toDouble()
+                )
+            }
+            if (points.isEmpty()) return null
+            PoseFrame(timestampMs = timestampMs, points = points)
         } catch (t: Throwable) {
-            Log.e(TAG, "detectWrist 失敗於 $timestampMs", t)
+            Log.e(TAG, "detectPose 失敗於 $timestampMs", t)
             null
         }
     }

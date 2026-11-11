@@ -1,4 +1,4 @@
-# PitchLab（Android）— Phase 1 + 2 + 3：高速相機、四點標定、投球紀錄與自動剪輯
+# PitchLab（Android）— Phase 1–4：高速相機、四點標定、自動剪輯與出手姿勢評分
 
 棒球投球追蹤與分析 App 的實作進度。Phase 1 把**高幀率取像 → 逐幀 CV → 物理量換算 → 資料落庫**
 這條主鏈打通並可驗證；Phase 2 在此之上補上「**場地四點標定 → 以雷達實測值校準球速 → 好球帶判定
@@ -182,14 +182,16 @@ app/src/main/java/com/pitchlab/
 │   │   ├── StrikeZoneEvaluator.kt # 好球/壞球（含球半徑寬容）
 │   │   ├── CalibrationRegistry.kt # @Volatile speedScale（逐幀路徑用）
 │   │   ├── ReleaseDetector.kt     # 手腕加速度峰值 → 出手點（純 Kotlin 可測）
+│   │   ├── PitchMechanicsEvaluator.kt  # 肩髖分離/手肘/前傾/放球高度 → 0–100 分
 │   │   └── CircularFrameBuffer.kt # Phase 1 預留，主流程改用 MP4 裁切
+│   ├── pose/PoseFrame.kt                # 評分用的關鍵點快照（純 Kotlin）
 │   ├── pose/PoseLandmarkerDetector.kt   # MediaPipe Pose（assets 模型、失敗降級）
 │   ├── media/PitchClipExtractor.kt      # MediaExtractor+MediaMuxer 免重編碼裁片段
 │   └── repository/                # PitchSessionRepository / CalibrationRepository
 ├── data/
-│   ├── local/                     # Room Entity / Dao / Database（v3 + 顯式 migration）
+│   ├── local/                     # Room Entity / Dao / Database（v4 + 顯式 migration）
 │   └── repository/                # RoomPitchSessionRepository / RoomCalibrationRepository
-├── di/AppModule.kt                # Hilt providers + MIGRATION_1_2 / 2_3
+├── di/AppModule.kt                # Hilt providers + MIGRATION_1_2 / 2_3 / 3_4
 └── ui/
     ├── PitchLabNavHost.kt         # camera ↔ history
     ├── camera/CameraScreen.kt, CameraViewModel.kt
@@ -370,6 +372,14 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 - [ ] 升級安裝（Phase 2 → Phase 3）後舊紀錄仍在，且新欄位為空（Room v2→v3 遷移成功）
 - [ ] 姿態推論不應讓球速延遲明顯變大：狀態列 `ms/幀` 與 Phase 2 相比增加 < 8 ms
 
+### 手機端驗收清單（Phase 4）
+
+- [ ] 出手後相機頁狀態列出現 `姿勢 N A/B/C/D`，投球動作越完整分數越高（同一人連續投 5 球應落在相近區間）
+- [ ] 歷史頁該筆出現「姿勢 82 · A ｜ 肩髖 28° / 肘 168° / 前傾 19°」
+- [ ] 刻意「只用手臂、不轉腰」投球，肩髖分離度數明顯變小、分數下降
+- [ ] 投手整個人出框或被遮擋時，該球不寫入姿勢欄位（顯示不出現，而不是 0 分）
+- [ ] 從 Phase 3 升級安裝後舊紀錄與片段仍在（Room v3→v4 遷移成功）
+
 ---
 
 ## 7. 已完成的機器驗證
@@ -377,10 +387,10 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 | 項目 | 結果 |
 |---|---|
 | `gradle assembleDebug testDebugUnitTest` | BUILD SUCCESSFUL（AGP 8.5.2 / Gradle 8.9 / JDK 17） |
-| 單元測試 | **33 tests, 0 failures**（Phase 1 的 11 + Phase 2 的 17 + Phase 3 的 5） |
-| APK | 144 MB（含 5.6 MB 姿態模型），`com.pitchlab` **v1.0.0-phase3**，minSdk 24 / target 34 |
+| 單元測試 | **39 tests, 0 failures**（Phase 1 的 11 + Phase 2 的 17 + Phase 3 的 5 + Phase 4 的 6） |
+| APK | 144 MB（含 5.6 MB 姿態模型），`com.pitchlab` **v1.0.0-phase4**，minSdk 24 / target 34 |
 | 簽章 | APK Signature Scheme v2：Verifies |
-| Room 遷移 | `1.json` / `2.json` / `3.json` 與 `MIGRATION_1_2`、`MIGRATION_2_3` 逐欄位一致 |
+| Room 遷移 | `1.json`～`4.json` 與 `MIGRATION_1_2`、`2_3`、`3_4` 逐欄位一致 |
 | 原生庫 | `libopencv_java4.so`（3 ABI）、`libmediapipe_tasks_vision_jni.so`（arm64/armv7） |
 | 資產 | `assets/pose_landmarker_lite.task`（5,777,746 bytes，已確認打包進 APK） |
 | FileProvider | `res/xml/file_paths.xml` 只暴露 `Movies/pitches/`（非全域 external-path） |
@@ -474,7 +484,68 @@ App 只停用出手偵測，球速與標定照常運作——是刻意設計的�
 
 ---
 
-## 9. 下一階段（Phase 4）
+## 9. Phase 4 追加：出手影格的姿勢評分
+
+### 9.1 四項指標怎麼算
+
+Phase 3 已經在出手瞬間拿到完整骨架，Phase 4 直接把同一幀的關鍵點換算成四個教學上常用的指標
+（`domain/cv/PitchMechanicsEvaluator.kt`，純 Kotlin、可單元測試）：
+
+| 指標 | 幾何定義 | 理想區間 | 偏差代表什麼 |
+|---|---|---|---|
+| 肩髖分離 | 肩線（左肩→右肩）與髖線的夾角，取 0–90° | 20–45° | 太小＝髖部太早開、力量漏掉；太大＝腰部代償 |
+| 前導手肘 | 以手肘為頂點，肩–肘–腕的夾角 | 150–178° | 太小＝放球點偏後、球速折損；180° 鎖死＝肘部負擔 |
+| 軀幹前傾 | 肩中點→髖中點連線與垂直線的夾角 | 5–25° | 太小＝體重沒帶向本壘；太大＝好球帶被壓低 |
+| 放球相對高度 | (踝Y − 腕Y) / (踝Y − 肩中點Y) | 0.80–1.00 | 太小＝放球點偏低；太大＝進壘偏高 |
+
+角度全部用 `atan2` / `acos` 直接算，沒有近似；肩線與髖線夾角先歸一化到 0–90°，
+避免同一個姿勢因為左右手顛倒而得到 180−θ 的錯誤值。
+
+### 9.2 分數與等級
+
+`score = 100 − Σ 扣分`，各項扣分上限 30/30/20/20：
+
+- 好球帶式的「硬門檻」會讓一個小缺點直接把總分歸零，看不出其餘三項的表現；
+- 因此採**分段線性扣分**（每偏離 1° 扣 2–2.5 分，封頂），四項獨立累加；
+- 等級：A ≥ 85、B ≥ 70、C ≥ 55、其餘 D。
+- 沒有偏差時回傳「四項指標都在理想區間」，而不是空字串。
+
+### 9.3 為什麼用「出手當下最近一幀」而不是重新推論
+
+`CameraViewModel` 在姿態執行緒持續把最新 `PoseFrame` 存成 `latestPoseFrame`；
+出手偵測觸發時直接對這份快照評分，**不重跑一次 MediaPipe**：
+
+- 重跑要多花 10–20 ms，而且必須回頭找「剛剛那張 Bitmap」，早就被回收；
+- 降頻 3 幀一次（約 50 ms）對姿勢評分是可接受的誤差——肩髖分離與前傾在 50 ms 內幾乎不變；
+- 評分結果只寫進「當前這一球」：與出手偏移共用 6 秒時間窗（`currentMechanics()`），
+  避免下一球誤用上一球的分数。
+
+### 9.4 資料庫 v4
+
+`pitch_sessions` 再追加五欄（全 nullable，不動舊資料）：
+
+| 欄位 | 型別 | 用途 |
+|---|---|---|
+| `pose_score` | INTEGER | 0–100 總分 |
+| `separation_deg` | REAL | 肩髖分離 |
+| `elbow_deg` | REAL | 前導手肘夾角 |
+| `trunk_tilt_deg` | REAL | 軀幹前傾 |
+| `release_height_ratio` | REAL | 放球相對高度 |
+
+`MIGRATION_3_4` 為五條 `ALTER TABLE ... ADD COLUMN`，與 `4.json` 逐欄位一致。
+歷史頁在該筆下方顯示「姿勢 82 · A ｜ 肩髖 28° / 肘 168° / 前傾 19°」。
+
+### 9.5 Phase 4 已知限制
+
+- 全部是 **2D 投影角度**：相機若不在投手正側方或正前方，角度會被透視壓縮，
+  只能用來比較「同一機位、同一位投手」的相對變化，不能當成實驗室量測。
+- 手腕/手肘/踝的可見度低於 0.5 就不計分；投手穿寬鬆衣物或背對鏡頭時常常取不到。
+- 理想區間是教學通則（給業餘投手回饋用），不是每位投手的個人化基準；
+  下一步應該用同一人的歷史分數做 z-score，而不是固定的 20–45°。
+
+---
+
+## 10. 下一階段（Phase 5）
 
 - 出手影格的「靜態姿勢評分」：用 MediaPipe 33 點算肩髖分離、前導手肘角度、放球高度，
   給出可比較的姿勢分數，而不是只有球速。
@@ -484,10 +555,10 @@ App 只停用出手偵測，球速與標定照常運作——是刻意設計的�
 
 ---
 
-## 10. 授權與版本
+## 11. 授權與版本
 
 - 授權：MIT（見 `LICENSE`，Copyright 2026 PitchLab contributors）。
-- 版本：`1.0.0-phase3`（versionCode 3）。
+- 版本：`1.0.0-phase4`（versionCode 4）。
 - 第三方：OpenCV 4.10.0（Apache-2.0）、CameraX 1.4.0（Apache-2.0）、
   MediaPipe Tasks 0.10.14（Apache-2.0）、MediaPipe Pose Landmarker lite 模型（Apache-2.0）。
 - 倉庫不含任何金鑰／keystore；debug 簽章由本機 `${HOME}/.android/debug.keystore` 產生。

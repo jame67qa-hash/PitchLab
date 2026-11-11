@@ -39,6 +39,7 @@ import com.pitchlab.domain.cv.HomographySolver
 import com.pitchlab.domain.cv.PitchAnalyzer
 import com.pitchlab.domain.cv.ReleaseDetector
 import com.pitchlab.domain.cv.WristSample
+import com.pitchlab.domain.cv.PitchMechanicsEvaluator
 import com.pitchlab.domain.cv.PitchMetricsCalculator
 import com.pitchlab.domain.model.CalibrationProfile
 import com.pitchlab.domain.model.CameraUiState
@@ -48,6 +49,8 @@ import com.pitchlab.domain.model.NormalizedPoint
 import com.pitchlab.domain.model.NormalizedRect
 import com.pitchlab.domain.media.PitchClipExtractor
 import com.pitchlab.domain.model.PitchSession
+import com.pitchlab.domain.pose.PoseFrame
+import com.pitchlab.domain.pose.PoseIndices
 import com.pitchlab.domain.pose.PoseLandmarkerDetector
 import com.pitchlab.domain.repository.CalibrationRepository
 import com.pitchlab.domain.repository.PitchSessionRepository
@@ -94,7 +97,8 @@ class CameraViewModel @Inject constructor(
     private val calibrationGeometry: CalibrationGeometry,
     private val poseDetector: PoseLandmarkerDetector,
     private val releaseDetector: ReleaseDetector,
-    private val clipExtractor: PitchClipExtractor
+    private val clipExtractor: PitchClipExtractor,
+    private val mechanicsEvaluator: PitchMechanicsEvaluator
 ) : ViewModel() {
 
     private companion object {
@@ -145,6 +149,12 @@ class CameraViewModel @Inject constructor(
     private var lastReleaseOffsetMs: Long? = null
     /** 只保留最近 6 秒內的出手，避免上一球的偏移被套到新的一球 */
     private var lastReleaseAtElapsedMs = 0L
+
+    /** 最近一幀姿態快照；出手時用它算姿勢分數（不重跑推論） */
+    @Volatile
+    private var latestPoseFrame: PoseFrame? = null
+    /** 最近一次出手的姿勢評分 */
+    private var lastMechanics: PitchMechanicsEvaluator.MechanicsFeedback? = null
 
     private var cameraProvider: ProcessCameraProvider? = null
     private var preview: Preview? = null
@@ -216,17 +226,28 @@ class CameraViewModel @Inject constructor(
         poseExecutor.execute {
             try {
                 poseFrameCount++
-                val wrist = poseDetector.detectWrist(scaled, timestampMs)
-                if (wrist != null) {
-                    wristSampleCount++
-                    releaseDetector.update(
-                        WristSample(
-                            timestampMs = timestampMs,
-                            x = wrist.x,
-                            y = wrist.y,
-                            visibility = wrist.visibility
-                        )
-                    )?.let { release -> onReleaseDetected(release) }
+                val pose = poseDetector.detectPose(scaled, timestampMs)
+                if (pose != null) {
+                    latestPoseFrame = pose
+                    val leftWrist = pose.point(PoseIndices.LEFT_WRIST)
+                    val rightWrist = pose.point(PoseIndices.RIGHT_WRIST)
+                    val wrist = when {
+                        leftWrist == null -> rightWrist
+                        rightWrist == null -> leftWrist
+                        leftWrist.visibility >= rightWrist.visibility -> leftWrist
+                        else -> rightWrist
+                    }
+                    if (wrist != null && wrist.visibility >= 0.5) {
+                        wristSampleCount++
+                        releaseDetector.update(
+                            WristSample(
+                                timestampMs = timestampMs,
+                                x = wrist.x,
+                                y = wrist.y,
+                                visibility = wrist.visibility
+                            )
+                        )?.let { release -> onReleaseDetected(release) }
+                    }
                 }
             } catch (t: Throwable) {
                 // 單幀推論失敗不影響球體追蹤，靜默跳過
@@ -249,13 +270,24 @@ class CameraViewModel @Inject constructor(
             lastReleaseAtElapsedMs = now
         }
         releaseCount++
+
+        // 出手影格姿勢評分：直接用出手當下最近一幀的關鍵點，不再重跑推論
+        val mechanics = latestPoseFrame?.let { frame ->
+            mechanicsEvaluator.evaluate(frame)
+        }
+        lastMechanics = mechanics
         _uiState.update { state ->
             state.copy(
                 releaseOffsetMs = offset,
-                statusMessage = if (offset != null) {
-                    "出手偵測：${offset} ms（加速度 ${String.format(Locale.US, "%.1f", release.acceleration)}）"
-                } else {
-                    "出手偵測：加速度峰值（未錄影，無法剪輯）"
+                mechanicsScore = mechanics?.score,
+                mechanicsGrade = mechanics?.grade,
+                statusMessage = buildString {
+                    if (offset != null) {
+                        append("出手偵測：${offset} ms")
+                    } else {
+                        append("出手偵測：加速度峰值（未錄影，無法剪輯）")
+                    }
+                    mechanics?.let { append(" · 姿勢 ${it.score} ${it.grade}") }
                 }
             )
         }
@@ -566,6 +598,7 @@ class CameraViewModel @Inject constructor(
         releaseDetector.reset()
         lastReleaseOffsetMs = null
         lastReleaseAtElapsedMs = 0L
+        lastMechanics = null
         recordStartedAtMillis = System.currentTimeMillis()
         recordStartedElapsedMs = SystemClock.elapsedRealtime()
 
@@ -643,7 +676,12 @@ class CameraViewModel @Inject constructor(
             videoPath = file.absolutePath,
             detectedFps = _uiState.value.requestedFps,
             trackedFrames = metrics.trackedFrames,
-            releaseOffsetMs = currentReleaseOffset()
+            releaseOffsetMs = currentReleaseOffset(),
+            poseScore = currentMechanics()?.score,
+            separationDeg = currentMechanics()?.separationDeg,
+            elbowDeg = currentMechanics()?.leadElbowDeg,
+            trunkTiltDeg = currentMechanics()?.trunkTiltDeg,
+            releaseHeightRatio = currentMechanics()?.releaseHeightRatio
         )
         runCatching { repository.save(session) }
     }
@@ -663,10 +701,19 @@ class CameraViewModel @Inject constructor(
             videoPath = _uiState.value.lastRecordingPath,
             detectedFps = _uiState.value.requestedFps,
             trackedFrames = metrics.trackedFrames,
-            releaseOffsetMs = currentReleaseOffset()
+            releaseOffsetMs = currentReleaseOffset(),
+            poseScore = currentMechanics()?.score,
+            separationDeg = currentMechanics()?.separationDeg,
+            elbowDeg = currentMechanics()?.leadElbowDeg,
+            trunkTiltDeg = currentMechanics()?.trunkTiltDeg,
+            releaseHeightRatio = currentMechanics()?.releaseHeightRatio
         )
         runCatching { repository.save(session) }
     }
+
+    /** 姿勢分數只在對應當前這一球時寫入（與出手偏移共用同一個時間窗） */
+    private fun currentMechanics(): PitchMechanicsEvaluator.MechanicsFeedback? =
+        if (currentReleaseOffset() != null) lastMechanics else null
 
     /** 只有「最近 6 秒內」的出手才對應當前這一球 */
     private fun currentReleaseOffset(): Long? {

@@ -58,5 +58,17 @@ data class PitchSessionEntity(
 
     /** 出手時間（相對錄影開始，毫秒）；用於剪輯定位 */
     @ColumnInfo(name = "release_offset_ms")
-    val releaseOffsetMs: Long? = null
+    val releaseOffsetMs: Long? = null,
+
+    /** Phase 4 出手姿勢評分（0–100）與四項量測 */
+    @ColumnInfo(name = "pose_score")
+    val poseScore: Int? = null,
+    @ColumnInfo(name = "separation_deg")
+    val separationDeg: Double? = null,
+    @ColumnInfo(name = "elbow_deg")
+    val elbowDeg: Double? = null,
+    @ColumnInfo(name = "trunk_tilt_deg")
+    val trunkTiltDeg: Double? = null,
+    @ColumnInfo(name = "release_height_ratio")
+    val releaseHeightRatio: Double? = null
 )

@@ -25,5 +25,11 @@ data class PitchSession(
     /** 自動剪輯片段路徑（出手前後各 2 秒） */
     val clipPath: String? = null,
     /** 出手時間相對錄影開始的偏移（毫秒） */
-    val releaseOffsetMs: Long? = null
+    val releaseOffsetMs: Long? = null,
+    /** 出手影格姿勢評分 0–100；null = 未偵測到姿勢 */
+    val poseScore: Int? = null,
+    val separationDeg: Double? = null,
+    val elbowDeg: Double? = null,
+    val trunkTiltDeg: Double? = null,
+    val releaseHeightRatio: Double? = null
 )

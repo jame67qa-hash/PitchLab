@@ -345,6 +345,12 @@ private fun StatusStrip(state: CameraUiState) {
                     text = if (state.poseAvailable) "出手 AUTO" else "出手 OFF",
                     color = if (state.poseAvailable) StrikeZoneGreen else TextSecondary
                 )
+                state.mechanicsScore?.let { score ->
+                    Tag(
+                        text = "姿勢 $score ${state.mechanicsGrade ?: ""}",
+                        color = if (score >= 70) StrikeZoneGreen else RadarAmber
+                    )
+                }
                 if (!state.videoSupported) {
                     Tag(text = "錄影不可用", color = AlarmRed)
                 }

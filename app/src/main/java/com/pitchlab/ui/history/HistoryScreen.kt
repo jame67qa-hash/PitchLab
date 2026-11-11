@@ -421,6 +421,26 @@ private fun SessionRow(session: PitchSession, onDelete: () -> Unit) {
                     Spacer(Modifier.width(8.dp))
                     Text(text = plate, color = TextSecondary, fontSize = 9.sp)
                 }
+                val poseScore = session.poseScore
+                if (poseScore != null) {
+                    val grade = when {
+                        poseScore >= 85 -> "A"
+                        poseScore >= 70 -> "B"
+                        poseScore >= 55 -> "C"
+                        else -> "D"
+                    }
+                    val detail = buildList {
+                        session.separationDeg?.let { add("肩髖 ${String.format("%.0f", it)}°") }
+                        session.elbowDeg?.let { add("肘 ${String.format("%.0f", it)}°") }
+                        session.trunkTiltDeg?.let { add("前傾 ${String.format("%.0f", it)}°") }
+                    }.joinToString(" / ")
+                    Spacer(Modifier.height(3.dp))
+                    Text(
+                        text = "姿勢 $poseScore · $grade" + if (detail.isNotEmpty()) " ｜ $detail" else "",
+                        color = if (poseScore >= 70) StrikeZoneGreen else RadarAmber,
+                        fontSize = 9.sp
+                    )
+                }
                 val clipPath = session.clipPath
                 if (!clipPath.isNullOrEmpty()) {
                     Spacer(Modifier.height(4.dp))

@@ -45,7 +45,12 @@ class RoomPitchSessionRepository @Inject constructor(
         trackedFrames = trackedFrames,
         createdAtMillis = createdAtMillis,
         clipPath = clipPath,
-        releaseOffsetMs = releaseOffsetMs
+        releaseOffsetMs = releaseOffsetMs,
+        poseScore = poseScore,
+        separationDeg = separationDeg,
+        elbowDeg = elbowDeg,
+        trunkTiltDeg = trunkTiltDeg,
+        releaseHeightRatio = releaseHeightRatio
     )
 
     private fun PitchSession.toEntity() = PitchSessionEntity(
@@ -65,6 +70,11 @@ class RoomPitchSessionRepository @Inject constructor(
         trackedFrames = trackedFrames,
         createdAtMillis = createdAtMillis,
         clipPath = clipPath,
-        releaseOffsetMs = releaseOffsetMs
+        releaseOffsetMs = releaseOffsetMs,
+        poseScore = poseScore,
+        separationDeg = separationDeg,
+        elbowDeg = elbowDeg,
+        trunkTiltDeg = trunkTiltDeg,
+        releaseHeightRatio = releaseHeightRatio
     )
 }

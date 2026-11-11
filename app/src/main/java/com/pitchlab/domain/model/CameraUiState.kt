@@ -110,6 +110,9 @@ data class CameraUiState(
     val releaseOffsetMs: Long? = null,
     /** 最近產生的出手片段路徑 */
     val lastClipPath: String? = null,
+    /** 最近一次出手的姿勢分數與等級（Phase 4） */
+    val mechanicsScore: Int? = null,
+    val mechanicsGrade: String? = null,
     val calibration: CalibrationUiState = CalibrationUiState()
 ) {
     /** 分析幀的寬高比（已轉正），UI 用它計算 letterbox 內容區 */

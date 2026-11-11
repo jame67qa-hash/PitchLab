@@ -13,6 +13,7 @@ import com.pitchlab.data.repository.RoomPitchSessionRepository
 import com.pitchlab.domain.cv.CalibrationRegistry
 import com.pitchlab.domain.cv.HomographySolver
 import com.pitchlab.domain.cv.PitchAnalyzer
+import com.pitchlab.domain.cv.PitchMechanicsEvaluator
 import com.pitchlab.domain.cv.ReleaseDetector
 import com.pitchlab.domain.media.PitchClipExtractor
 import com.pitchlab.domain.pose.PoseLandmarkerDetector
@@ -70,11 +71,22 @@ object AppModule {
         }
     }
 
+    /** v3 -> v4：出手姿勢評分欄位（全部 nullable，舊紀錄不受影響） */
+    private val MIGRATION_3_4 = object : Migration(3, 4) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("ALTER TABLE `pitch_sessions` ADD COLUMN `pose_score` INTEGER")
+            db.execSQL("ALTER TABLE `pitch_sessions` ADD COLUMN `separation_deg` REAL")
+            db.execSQL("ALTER TABLE `pitch_sessions` ADD COLUMN `elbow_deg` REAL")
+            db.execSQL("ALTER TABLE `pitch_sessions` ADD COLUMN `trunk_tilt_deg` REAL")
+            db.execSQL("ALTER TABLE `pitch_sessions` ADD COLUMN `release_height_ratio` REAL")
+        }
+    }
+
     @Provides
     @Singleton
     fun provideDatabase(@ApplicationContext context: Context): PitchLabDatabase =
         Room.databaseBuilder(context, PitchLabDatabase::class.java, "pitchlab.db")
-            .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
+            .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
             .build()
 
     @Provides
@@ -108,6 +120,10 @@ object AppModule {
     @Provides
     @Singleton
     fun provideReleaseDetector(): ReleaseDetector = ReleaseDetector()
+
+    @Provides
+    @Singleton
+    fun provideMechanicsEvaluator(): PitchMechanicsEvaluator = PitchMechanicsEvaluator()
 
     @Provides
     @Singleton
