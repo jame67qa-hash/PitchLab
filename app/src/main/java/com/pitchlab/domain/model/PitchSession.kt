@@ -21,5 +21,9 @@ data class PitchSession(
     val videoPath: String? = null,
     val detectedFps: Int = 0,
     val trackedFrames: Int = 0,
-    val createdAtMillis: Long = System.currentTimeMillis()
+    val createdAtMillis: Long = System.currentTimeMillis(),
+    /** 自動剪輯片段路徑（出手前後各 2 秒） */
+    val clipPath: String? = null,
+    /** 出手時間相對錄影開始的偏移（毫秒） */
+    val releaseOffsetMs: Long? = null
 )

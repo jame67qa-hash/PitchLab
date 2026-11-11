@@ -25,6 +25,9 @@ class RoomPitchSessionRepository @Inject constructor(
 
     override suspend fun clear() = dao.clearAll()
 
+    override suspend fun updateClip(videoPath: String, clipPath: String) =
+        dao.updateClipPath(videoPath, clipPath)
+
     private fun PitchSessionEntity.toDomain() = PitchSession(
         id = id,
         startedAtMillis = startedAtMillis,
@@ -40,7 +43,9 @@ class RoomPitchSessionRepository @Inject constructor(
         videoPath = videoPath,
         detectedFps = detectedFps,
         trackedFrames = trackedFrames,
-        createdAtMillis = createdAtMillis
+        createdAtMillis = createdAtMillis,
+        clipPath = clipPath,
+        releaseOffsetMs = releaseOffsetMs
     )
 
     private fun PitchSession.toEntity() = PitchSessionEntity(
@@ -58,6 +63,8 @@ class RoomPitchSessionRepository @Inject constructor(
         videoPath = videoPath,
         detectedFps = detectedFps,
         trackedFrames = trackedFrames,
-        createdAtMillis = createdAtMillis
+        createdAtMillis = createdAtMillis,
+        clipPath = clipPath,
+        releaseOffsetMs = releaseOffsetMs
     )
 }

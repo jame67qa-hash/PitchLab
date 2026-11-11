@@ -341,6 +341,10 @@ private fun StatusStrip(state: CameraUiState) {
                 Tag(text = "投球 ${state.pitchCount}", color = RadarAmber)
                 Tag(text = "好 ${state.strikeCount}", color = StrikeZoneGreen)
                 Tag(text = "壞 ${state.ballCount}", color = AlarmRed)
+                Tag(
+                    text = if (state.poseAvailable) "出手 AUTO" else "出手 OFF",
+                    color = if (state.poseAvailable) StrikeZoneGreen else TextSecondary
+                )
                 if (!state.videoSupported) {
                     Tag(text = "錄影不可用", color = AlarmRed)
                 }

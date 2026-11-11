@@ -14,13 +14,13 @@ android {
         applicationId = "com.pitchlab"
         minSdk = 24
         targetSdk = 34
-        versionCode = 1
-        versionName = "1.0.0-phase2"
+        versionCode = 3
+        versionName = "1.0.0-phase3"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables { useSupportLibrary = true }
 
-        // MediaPipe Tasks 的 native 库需要 ndk abiFilters 明确列出，避免打包无关架构
+        // MediaPipe Tasks 的 native 庫需要 ndk abiFilters 明確列出，避免打包無關架構
         ndk {
             abiFilters += listOf("arm64-v8a", "armeabi-v7a", "x86_64")
         }
@@ -79,7 +79,7 @@ android {
         }
     }
 
-    // Room schema 导出，Phase 2 起用于迁移校验
+    // Room schema 導出，Phase 2 起用於遷移校驗
     ksp {
         arg("room.schemaLocation", "$projectDir/schemas")
     }
@@ -115,12 +115,12 @@ dependencies {
     implementation("androidx.hilt:hilt-navigation-compose:1.2.0")
     implementation("androidx.navigation:navigation-compose:2.8.4")
 
-    // ---------- Room (本地数据库) ----------
+    // ---------- Room (本地數據庫) ----------
     implementation("androidx.room:room-runtime:2.6.1")
     implementation("androidx.room:room-ktx:2.6.1")
     ksp("androidx.room:room-compiler:2.6.1")
 
-    // ---------- CameraX (含 Camera2Interop 用于锁帧率) ----------
+    // ---------- CameraX (含 Camera2Interop 用於鎖幀率) ----------
     val cameraxVersion = "1.4.0"
     implementation("androidx.camera:camera-core:$cameraxVersion")
     implementation("androidx.camera:camera-camera2:$cameraxVersion")
@@ -131,10 +131,10 @@ dependencies {
     // ---------- OpenCV (官方 AAR，Maven Central) ----------
     implementation("org.opencv:opencv:4.10.0")
 
-    // ---------- MediaPipe Pose (Phase 3 动作/出手点检测) ----------
+    // ---------- MediaPipe Pose (Phase 3 動作/出手點檢測) ----------
     implementation("com.google.mediapipe:tasks-vision:0.10.14")
 
-    // ---------- 测试 ----------
+    // ---------- 測試 ----------
     testImplementation("junit:junit:4.13.2")
     androidTestImplementation("androidx.test.ext:junit:1.2.1")
     androidTestImplementation("androidx.test.espresso:espresso-core:3.6.1")

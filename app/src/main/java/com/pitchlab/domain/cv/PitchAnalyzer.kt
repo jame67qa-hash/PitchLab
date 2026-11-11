@@ -61,8 +61,25 @@ class PitchAnalyzer(
     private val pendingDebugFrames = AtomicInteger(0)
     private val processingEnabled = AtomicBoolean(true)
 
-    /** 抓幀回調：phase 1 用於「凍結當前幀」調試，Phase 3 直接接 MediaPipe */
+    /** 抓幀回調：Phase 2 用於「凍結當前幀」標定 */
     var frameListener: ((Bitmap, Long) -> Unit)? = null
+
+    /**
+     * 姿態推論回調（Phase 3）：每 [poseInterval] 幀輸出一張 upright Bitmap。
+     *
+     * 之所以跟 [frameListener] 分開：標定要「精確一幀且可暫停」，出手偵測要「持續、
+     * 可降頻」；兩者生命週期不同，混在同一個 slot 會互相覆蓋。
+     */
+    var poseListener: ((Bitmap, Long) -> Unit)? = null
+    private val poseInterval = AtomicInteger(3)
+    private var poseFrameCounter = 0L
+
+    fun setPoseInterval(frames: Int) {
+        poseInterval.set(frames.coerceAtLeast(0))
+        poseFrameCounter = 0L
+    }
+
+    val isPoseEnabled: Boolean get() = poseListener != null && poseInterval.get() > 0
 
     // ---------- 分析執行緒獨佔的可重用緩衝 ----------
     private val grayMat = Mat()
@@ -205,7 +222,19 @@ class PitchAnalyzer(
             }
             lastTimestampNs = timestampNs
 
-            // 6) 按需輸出 Bitmap（調試抓幀 / MediaPipe）
+            // 6a) 姿態推論取幀（降頻，避免吃掉分析執行緒）
+            val interval = poseInterval.get()
+            if (poseListener != null && interval > 0 && poseFrameCounter % interval == 0L) {
+                try {
+                    val poseBitmap = rotateUpright(yuvToRgbConverter.toBitmap(image), rotation)
+                    poseListener?.invoke(poseBitmap, timestampNs)
+                } catch (t: Throwable) {
+                    Log.e(TAG, "pose frame delivery failed", t)
+                }
+            }
+            poseFrameCounter++
+
+            // 6b) 按需輸出 Bitmap（調試抓幀 / MediaPipe）
             if (pendingDebugFrames.get() > 0) {
                 pendingDebugFrames.decrementAndGet()
                 val bitmap = rotateUpright(yuvToRgbConverter.toBitmap(image), rotation)
@@ -292,5 +321,6 @@ class PitchAnalyzer(
         tracker.release()
         yuvToRgbConverter.release()
         frameListener = null
+        poseListener = null
     }
 }

@@ -2,21 +2,21 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
 
-    <!-- 相机：预览 / 高帧率录像 / 逐帧分析 -->
+    <!-- 相機：預覽 / 高幀率錄影 / 逐幀分析 -->
     <uses-permission android:name="android.permission.CAMERA" />
-    <!-- 麦克风：录像时同步收音（可选权限，缺失时静音录制） -->
+    <!-- 麥克風：錄影時同步收音（可選權限，缺失時靜音錄製） -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
-    <!-- API 28 及以下写外部存储 -->
+    <!-- API 28 及以下寫外部儲存 -->
     <uses-permission
         android:name="android.permission.WRITE_EXTERNAL_STORAGE"
         android:maxSdkVersion="28" />
-    <!-- API 33+ 读取已录制视频（相册/分享） -->
+    <!-- API 33+ 讀取已錄製影片（相冊/分享） -->
     <uses-permission android:name="android.permission.READ_MEDIA_VIDEO" />
     <uses-permission
         android:name="android.permission.READ_EXTERNAL_STORAGE"
         android:maxSdkVersion="32" />
 
-    <!-- 高帧率录像依赖硬件能力，但应用可在普通设备降级到 30fps -->
+    <!-- 高幀率錄影依賴硬件能力，但App可在一般裝置降級到 30fps -->
     <uses-feature
         android:name="android.hardware.camera.any"
         android:required="true" />
@@ -39,7 +39,7 @@
         android:theme="@style/Theme.PitchLab"
         tools:targetApi="34">
 
-        <!-- 逐帧分析需要大内存（720p RGBA + OpenCV Mat），largeHeap 已开启 -->
+        <!-- 逐幀分析需要大內存（720p RGBA + OpenCV Mat），largeHeap 已開啓 -->
 
         <activity
             android:name=".MainActivity"
@@ -53,9 +53,23 @@
             </intent-filter>
         </activity>
 
-        <!-- Hilt 生成的组件无需额外声明；此处仅保持 tools 命名空间可用 -->
+        <!--
+            錄影片段要交給外部播放器開啟，Android 7+ 必須走 FileProvider，
+            不能再直接傳 file:// URI（會拋 FileUriExposedException）。
+        -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
+
+        <!-- Hilt 生成的元件無須額外宣告；此處僅保持 tools 命名空間可用 -->
         <meta-data
             android:name="com.pitchlab.PHASE"
-            android:value="1" />
+            android:value="3" />
     </application>
 </manifest>

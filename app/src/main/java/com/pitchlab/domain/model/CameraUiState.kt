@@ -104,6 +104,12 @@ data class CameraUiState(
     /** 幾何標定是否可用（好球帶框由本壘板四角推出） */
     val geometryCalibrated: Boolean = false,
     val calibrationSummary: String = "尚未標定",
+    /** 姿態模型是否可用（可用 = 出手偵測 + 自動剪輯生效） */
+    val poseAvailable: Boolean = false,
+    /** 最近一次出手相對錄影起點的偏移（毫秒） */
+    val releaseOffsetMs: Long? = null,
+    /** 最近產生的出手片段路徑 */
+    val lastClipPath: String? = null,
     val calibration: CalibrationUiState = CalibrationUiState()
 ) {
     /** 分析幀的寬高比（已轉正），UI 用它計算 letterbox 內容區 */

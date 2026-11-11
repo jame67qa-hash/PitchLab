@@ -13,6 +13,9 @@ import com.pitchlab.data.repository.RoomPitchSessionRepository
 import com.pitchlab.domain.cv.CalibrationRegistry
 import com.pitchlab.domain.cv.HomographySolver
 import com.pitchlab.domain.cv.PitchAnalyzer
+import com.pitchlab.domain.cv.ReleaseDetector
+import com.pitchlab.domain.media.PitchClipExtractor
+import com.pitchlab.domain.pose.PoseLandmarkerDetector
 import com.pitchlab.domain.repository.CalibrationRepository
 import com.pitchlab.domain.repository.PitchSessionRepository
 import dagger.Module
@@ -56,11 +59,22 @@ object AppModule {
         }
     }
 
+    /**
+     * v2 -> v3：自動剪輯欄位。
+     * 只加欄位、不改舊欄位，既有紀錄全部保留。
+     */
+    private val MIGRATION_2_3 = object : Migration(2, 3) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("ALTER TABLE `pitch_sessions` ADD COLUMN `clip_path` TEXT")
+            db.execSQL("ALTER TABLE `pitch_sessions` ADD COLUMN `release_offset_ms` INTEGER")
+        }
+    }
+
     @Provides
     @Singleton
     fun provideDatabase(@ApplicationContext context: Context): PitchLabDatabase =
         Room.databaseBuilder(context, PitchLabDatabase::class.java, "pitchlab.db")
-            .addMigrations(MIGRATION_1_2)
+            .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
             .build()
 
     @Provides
@@ -90,6 +104,14 @@ object AppModule {
     @Provides
     @Singleton
     fun provideHomographySolver(): HomographySolver = HomographySolver()
+
+    @Provides
+    @Singleton
+    fun provideReleaseDetector(): ReleaseDetector = ReleaseDetector()
+
+    @Provides
+    @Singleton
+    fun providePitchClipExtractor(): PitchClipExtractor = PitchClipExtractor()
 
     @Provides
     @Singleton

@@ -1,4 +1,4 @@
-// Top-level build file. 插件版本集中在此声明，模块内 apply false 复用。
+// Top-level build file. 插件版本集中在此聲明，模塊內 apply false 複用。
 plugins {
     id("com.android.application") version "8.5.2" apply false
     id("org.jetbrains.kotlin.android") version "2.0.21" apply false

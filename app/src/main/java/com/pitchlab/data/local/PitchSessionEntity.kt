@@ -50,5 +50,13 @@ data class PitchSessionEntity(
     val trackedFrames: Int,
 
     @ColumnInfo(name = "created_at")
-    val createdAtMillis: Long
+    val createdAtMillis: Long,
+
+    /** 自動剪輯產生的片段路徑（null = 尚未剪輯或剪輯失敗） */
+    @ColumnInfo(name = "clip_path")
+    val clipPath: String? = null,
+
+    /** 出手時間（相對錄影開始，毫秒）；用於剪輯定位 */
+    @ColumnInfo(name = "release_offset_ms")
+    val releaseOffsetMs: Long? = null
 )

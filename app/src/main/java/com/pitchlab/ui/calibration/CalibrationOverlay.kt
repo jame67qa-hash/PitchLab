@@ -208,6 +208,21 @@ fun CalibrationOverlay(
                         )
                     }
 
+                    if (state.reprojectionErrorIn > 0.0) {
+                        val grade = when {
+                            state.reprojectionErrorIn < 0.5 -> "品質：優（可以直接投球）"
+                            state.reprojectionErrorIn < 1.5 -> "品質：可接受"
+                            else -> "品質：偏差偏大，建議重新點四角"
+                        }
+                        val gradeColor = when {
+                            state.reprojectionErrorIn < 0.5 -> StrikeZoneGreen
+                            state.reprojectionErrorIn < 1.5 -> RadarAmber
+                            else -> AlarmRed
+                        }
+                        Spacer(Modifier.height(2.dp))
+                        Text(text = grade, color = gradeColor, fontSize = 10.sp, fontWeight = FontWeight.Medium)
+                    }
+
                     state.message?.let { message ->
                         Spacer(Modifier.height(6.dp))
                         Text(text = message, color = TextSecondary, fontSize = 10.sp)

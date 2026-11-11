@@ -10,4 +10,7 @@ interface PitchSessionRepository {
     suspend fun save(session: PitchSession): Long
     suspend fun delete(id: Long)
     suspend fun clear()
+
+    /** 為同一段錄影的所有紀錄掛上自動剪輯片段 */
+    suspend fun updateClip(videoPath: String, clipPath: String)
 }

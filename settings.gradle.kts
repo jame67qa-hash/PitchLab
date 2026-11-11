@@ -11,7 +11,7 @@ dependencyResolutionManagement {
     repositories {
         google()
         mavenCentral()
-        // MediaPipe Tasks 发布在 Google Maven；OpenCV 官方 AAR 发布在 Maven Central
+        // MediaPipe Tasks 發佈在 Google Maven；OpenCV 官方 AAR 發佈在 Maven Central
     }
 }
 

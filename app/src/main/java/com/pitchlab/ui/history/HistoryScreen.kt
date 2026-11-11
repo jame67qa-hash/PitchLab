@@ -1,5 +1,8 @@
 package com.pitchlab.ui.history
 
+import android.content.Context
+import android.content.Intent
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -30,7 +33,12 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -46,6 +54,8 @@ import com.pitchlab.ui.theme.RadarAmber
 import com.pitchlab.ui.theme.StrikeZoneGreen
 import com.pitchlab.ui.theme.TextPrimary
 import com.pitchlab.ui.theme.TextSecondary
+import androidx.core.content.FileProvider
+import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -103,6 +113,7 @@ fun HistoryScreen(
 
         SummaryRow(
             fastestMph = state.fastestMph,
+            averageMph = state.averageMph,
             total = state.sessions.size,
             strikeRate = if (state.strikeCount + state.ballCount > 0) {
                 state.strikeCount.toDouble() / (state.strikeCount + state.ballCount)
@@ -110,6 +121,18 @@ fun HistoryScreen(
                 null
             }
         )
+
+        if (state.sessions.isNotEmpty()) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 12.dp, vertical = 4.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                PlateMapCard(marks = state.plateMarks, modifier = Modifier.weight(1f))
+                SpeedTrendCard(trend = state.speedTrend, modifier = Modifier.weight(1f))
+            }
+        }
 
         if (state.sessions.isEmpty() && !state.isLoading) {
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -138,7 +161,7 @@ fun HistoryScreen(
 }
 
 @Composable
-private fun SummaryRow(fastestMph: Double?, total: Int, strikeRate: Double?) {
+private fun SummaryRow(fastestMph: Double?, averageMph: Double?, total: Int, strikeRate: Double?) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -148,6 +171,12 @@ private fun SummaryRow(fastestMph: Double?, total: Int, strikeRate: Double?) {
         SummaryCell(
             label = "最快球速",
             value = fastestMph?.let { String.format("%.1f", it) } ?: "—",
+            unit = "MPH",
+            modifier = Modifier.weight(1f)
+        )
+        SummaryCell(
+            label = "平均球速",
+            value = averageMph?.let { String.format("%.1f", it) } ?: "—",
             unit = "MPH",
             modifier = Modifier.weight(1f)
         )
@@ -184,9 +213,136 @@ private fun SummaryCell(label: String, value: String, unit: String, modifier: Mo
     }
 }
 
+/**
+ * 好球帶散點圖：把最近 20 球的進壘點畫在 17 x 23 in 的好球帶框上。
+ *
+ * 座標範圍刻意比好球帶大（x ±20 in、y 8~46 in），這樣「投到框外」的球
+ * 才不會被裁掉——球投到哪裡、偏差多少，比只統計好壞球更有訓練價值。
+ */
+@Composable
+private fun PlateMapCard(marks: List<PlateMark>, modifier: Modifier) {
+    Card(
+        colors = CardDefaults.cardColors(containerColor = PitchSurface),
+        shape = RoundedCornerShape(12.dp),
+        modifier = modifier
+    ) {
+        Column(modifier = Modifier.padding(8.dp)) {
+            Text(text = "進壘點分佈", color = TextPrimary, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+            Text(text = "最近 ${marks.size} 球", color = TextSecondary, fontSize = 8.sp)
+            Spacer(Modifier.height(4.dp))
+            Canvas(modifier = Modifier.fillMaxWidth().height(96.dp)) {
+                val xMin = -20.0
+                val xMax = 20.0
+                val yMin = 8.0
+                val yMax = 46.0
+                fun px(x: Double) = ((x - xMin) / (xMax - xMin) * size.width).toFloat()
+                fun py(y: Double) = ((yMax - y) / (yMax - yMin) * size.height).toFloat()
+
+                // 好球帶框：寬 17 in（x -8.5 ~ 8.5），高 19 ~ 42 in
+                val left = px(-8.5)
+                val right = px(8.5)
+                val top = py(42.0)
+                val bottom = py(19.0)
+                drawRect(
+                    color = StrikeZoneGreen.copy(alpha = 0.55f),
+                    topLeft = Offset(left, top),
+                    size = Size(right - left, bottom - top),
+                    style = Stroke(width = 1.5f)
+                )
+                // 九宮格
+                for (i in 1..2) {
+                    val gx = left + (right - left) * i / 3f
+                    drawLine(StrikeZoneGreen.copy(alpha = 0.18f), Offset(gx, top), Offset(gx, bottom), 1f)
+                    val gy = top + (bottom - top) * i / 3f
+                    drawLine(StrikeZoneGreen.copy(alpha = 0.18f), Offset(left, gy), Offset(right, gy), 1f)
+                }
+                // 本壘板示意
+                drawRect(
+                    color = TextSecondary.copy(alpha = 0.5f),
+                    topLeft = Offset(px(-8.5), py(8.0)),
+                    size = Size(right - left, 2f)
+                )
+                // 散點（越新越亮：index 越大 alpha 越高）
+                marks.reversed().forEachIndexed { index, mark ->
+                    val alpha = 0.35f + 0.55f * (index + 1) / marks.size.toFloat()
+                    val color = when (mark.isStrike) {
+                        true -> StrikeZoneGreen
+                        false -> AlarmRed
+                        null -> RadarAmber
+                    }
+                    drawCircle(
+                        color = color.copy(alpha = alpha),
+                        radius = 2.6f,
+                        center = Offset(px(mark.xInches), py(mark.yInches))
+                    )
+                }
+            }
+            Text(
+                text = "綠=好球 紅=壞球 黃=未判定",
+                color = TextSecondary.copy(alpha = 0.7f),
+                fontSize = 7.sp
+            )
+        }
+    }
+}
+
+/** 最近 12 球球速折線；估速與雷達校準用不同顏色點區分 */
+@Composable
+private fun SpeedTrendCard(trend: List<Double>, modifier: Modifier) {
+    Card(
+        colors = CardDefaults.cardColors(containerColor = PitchSurface),
+        shape = RoundedCornerShape(12.dp),
+        modifier = modifier
+    ) {
+        Column(modifier = Modifier.padding(8.dp)) {
+            Text(text = "球速趨勢", color = TextPrimary, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+            Text(
+                text = if (trend.isEmpty()) "尚無球速" else "最近 ${trend.size} 球（舊 → 新）",
+                color = TextSecondary,
+                fontSize = 8.sp
+            )
+            Spacer(Modifier.height(4.dp))
+            Canvas(modifier = Modifier.fillMaxWidth().height(96.dp)) {
+                if (trend.isEmpty()) return@Canvas
+                val minValue = (trend.min() - 2.0).coerceAtLeast(1.0)
+                val maxValue = trend.max() + 2.0
+                val span = (maxValue - minValue).coerceAtLeast(1.0)
+                val stepX = if (trend.size <= 1) 0f else size.width / (trend.size - 1)
+                fun py(v: Double) = ((maxValue - v) / span * size.height * 0.86f + size.height * 0.07f).toFloat()
+
+                // 基準線：平均
+                val avg = trend.average()
+                drawLine(
+                    color = TextSecondary.copy(alpha = 0.35f),
+                    start = Offset(0f, py(avg)),
+                    end = Offset(size.width, py(avg)),
+                    strokeWidth = 1f
+                )
+                val path = Path()
+                trend.forEachIndexed { index, value ->
+                    val point = Offset(stepX * index, py(value))
+                    if (index == 0) path.moveTo(point.x, point.y) else path.lineTo(point.x, point.y)
+                }
+                drawPath(path = path, color = LaserCyan, style = Stroke(width = 2f))
+                trend.forEachIndexed { index, value ->
+                    drawCircle(color = LaserCyan, radius = 3f, center = Offset(stepX * index, py(value)))
+                }
+            }
+            Text(
+                text = trend.takeIf { it.isNotEmpty() }
+                    ?.let { "${String.format("%.1f", it.min())} – ${String.format("%.1f", it.max())} MPH" }
+                    ?: "—",
+                color = TextSecondary.copy(alpha = 0.7f),
+                fontSize = 7.sp
+            )
+        }
+    }
+}
+
 @Composable
 private fun SessionRow(session: PitchSession, onDelete: () -> Unit) {
     val formatter = remember { SimpleDateFormat("MM/dd HH:mm:ss", Locale.getDefault()) }
+    val context = LocalContext.current
     val strikeLabel = when (session.isStrike) {
         true -> "好球"
         false -> "壞球"
@@ -265,8 +421,23 @@ private fun SessionRow(session: PitchSession, onDelete: () -> Unit) {
                     Spacer(Modifier.width(8.dp))
                     Text(text = plate, color = TextSecondary, fontSize = 9.sp)
                 }
+                val clipPath = session.clipPath
+                if (!clipPath.isNullOrEmpty()) {
+                    Spacer(Modifier.height(4.dp))
+                    TextButton(
+                        onClick = { openClip(context, clipPath) },
+                        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 0.dp, vertical = 0.dp),
+                        modifier = Modifier.height(22.dp)
+                    ) {
+                        Text(
+                            text = "▶ 出手片段 · " + clipPath.substringAfterLast('/'),
+                            color = StrikeZoneGreen,
+                            fontSize = 9.sp
+                        )
+                    }
+                }
                 if (!session.videoPath.isNullOrEmpty()) {
-                    Spacer(Modifier.height(2.dp))
+                    Spacer(Modifier.height(1.dp))
                     Text(
                         text = "影片 " + session.videoPath.substringAfterLast('/'),
                         color = RadarAmber,
@@ -283,5 +454,29 @@ private fun SessionRow(session: PitchSession, onDelete: () -> Unit) {
                 )
             }
         }
+    }
+}
+
+
+/**
+ * 用系統播放器開啟剪輯片段。
+ * 走 FileProvider 是因為 Android 7+ 禁止跨 App 傳 file:// URI，
+ * 少了這段會直接拋 FileUriExposedException 而不是「無法播放」。
+ */
+private fun openClip(context: Context, path: String) {
+    val file = File(path)
+    if (!file.exists()) return
+    runCatching {
+        val uri = FileProvider.getUriForFile(
+            context,
+            context.packageName + ".fileprovider",
+            file
+        )
+        val intent = Intent(Intent.ACTION_VIEW).apply {
+            setDataAndType(uri, "video/mp4")
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        context.startActivity(intent)
     }
 }

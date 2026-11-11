@@ -1,4 +1,4 @@
-# OpenCV / MediaPipe / CameraX 通过 JNI 反射访问的类不参与混淆
+# OpenCV / MediaPipe / CameraX 通過 JNI 反射訪問的類不參與混淆
 -keep class org.opencv.** { *; }
 -keep class com.google.mediapipe.** { *; }
 -keep class androidx.camera.** { *; }

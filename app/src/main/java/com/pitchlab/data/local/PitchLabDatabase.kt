@@ -5,7 +5,7 @@ import androidx.room.RoomDatabase
 
 @Database(
     entities = [PitchSessionEntity::class, CalibrationEntity::class],
-    version = 2,
+    version = 3,   // v3：新增 clip_path / release_offset_ms（自動剪輯）
     exportSchema = true
 )
 abstract class PitchLabDatabase : RoomDatabase() {

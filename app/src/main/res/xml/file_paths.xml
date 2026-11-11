@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    只暴露 App 自己的影片目錄（getExternalFilesDir(Movies)/pitches），
+    不要用 <external-path> 全域開放，避免把使用者的其他檔案也暴露給外部 App。
+-->
+<paths>
+    <external-files-path
+        name="pitch_videos"
+        path="Movies/pitches/" />
+</paths>

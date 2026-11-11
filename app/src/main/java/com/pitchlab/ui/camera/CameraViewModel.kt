@@ -5,7 +5,9 @@ import android.content.Context
 import android.content.pm.PackageManager
 import android.hardware.camera2.CameraCharacteristics
 import android.hardware.camera2.CameraManager
+import android.graphics.Bitmap
 import android.os.Environment
+import android.os.SystemClock
 import android.util.Range
 import android.util.Size
 import androidx.camera.camera2.interop.Camera2Interop
@@ -35,6 +37,8 @@ import com.pitchlab.domain.cv.CalibrationGeometry
 import com.pitchlab.domain.cv.CalibrationRegistry
 import com.pitchlab.domain.cv.HomographySolver
 import com.pitchlab.domain.cv.PitchAnalyzer
+import com.pitchlab.domain.cv.ReleaseDetector
+import com.pitchlab.domain.cv.WristSample
 import com.pitchlab.domain.cv.PitchMetricsCalculator
 import com.pitchlab.domain.model.CalibrationProfile
 import com.pitchlab.domain.model.CameraUiState
@@ -42,11 +46,14 @@ import com.pitchlab.domain.model.FrameAnalysisResult
 import com.pitchlab.domain.model.LivePitchMetrics
 import com.pitchlab.domain.model.NormalizedPoint
 import com.pitchlab.domain.model.NormalizedRect
+import com.pitchlab.domain.media.PitchClipExtractor
 import com.pitchlab.domain.model.PitchSession
+import com.pitchlab.domain.pose.PoseLandmarkerDetector
 import com.pitchlab.domain.repository.CalibrationRepository
 import com.pitchlab.domain.repository.PitchSessionRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -54,11 +61,13 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.withContext
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import java.util.concurrent.Executors
+import java.util.concurrent.atomic.AtomicBoolean
 import javax.inject.Inject
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
@@ -82,7 +91,10 @@ class CameraViewModel @Inject constructor(
     private val calibrationRepository: CalibrationRepository,
     private val calibrationRegistry: CalibrationRegistry,
     private val homographySolver: HomographySolver,
-    private val calibrationGeometry: CalibrationGeometry
+    private val calibrationGeometry: CalibrationGeometry,
+    private val poseDetector: PoseLandmarkerDetector,
+    private val releaseDetector: ReleaseDetector,
+    private val clipExtractor: PitchClipExtractor
 ) : ViewModel() {
 
     private companion object {
@@ -93,6 +105,16 @@ class CameraViewModel @Inject constructor(
         const val ANALYSIS_HEIGHT = 720
         const val PREVIEW_WIDTH = 1920
         const val PREVIEW_HEIGHT = 1080
+
+        /** 每 N 幀送一次姿態推論（60fps -> 20fps；2 vCPU 可接受的成本） */
+        const val POSE_FRAME_INTERVAL = 3
+        /** 姿態輸入寬度：lite 模型內部本來就會縮，提前縮可省 3/4 的轉換成本 */
+        const val POSE_INPUT_WIDTH = 384
+        /** 出手偏移上限，超過視為上一球的殘留 */
+        const val MAX_CLIP_CENTER_MS = 6_000L
+        /** 自動剪輯前後各保留的長度 */
+        const val CLIP_BEFORE_MS = 2_000L
+        const val CLIP_AFTER_MS = 2_000L
     }
 
     private val _uiState = MutableStateFlow(CameraUiState())
@@ -107,6 +129,22 @@ class CameraViewModel @Inject constructor(
     private val analysisExecutor = Executors.newSingleThreadExecutor { runnable ->
         Thread(runnable, "pitchlab-analysis").apply { priority = Thread.NORM_PRIORITY }
     }
+
+    /** 姿態推論專用執行緒：與 CV 分析分離，避免 MediaPipe 阻塞球體追蹤 */
+    private val poseExecutor = Executors.newSingleThreadExecutor { runnable ->
+        Thread(runnable, "pitchlab-pose").apply { priority = Thread.NORM_PRIORITY }
+    }
+    private val poseBusy = AtomicBoolean(false)
+    private var poseFrameCount = 0
+    private var wristSampleCount = 0
+    private var releaseCount = 0
+
+    /** 錄影起點（elapsedRealtime，毫秒）；出手時間用它換算成片段偏移 */
+    private var recordStartedElapsedMs = 0L
+    /** 最近一次出手相對錄影開始的偏移；null = 這段錄影還沒偵測到出手 */
+    private var lastReleaseOffsetMs: Long? = null
+    /** 只保留最近 6 秒內的出手，避免上一球的偏移被套到新的一球 */
+    private var lastReleaseAtElapsedMs = 0L
 
     private var cameraProvider: ProcessCameraProvider? = null
     private var preview: Preview? = null
@@ -139,6 +177,87 @@ class CameraViewModel @Inject constructor(
         }
         viewModelScope.launch {
             calibrationRepository.observeActive().collect { profile -> applyProfile(profile) }
+        }
+
+        // Phase 3：姿態 -> 出手偵測 -> 自動剪輯
+        val poseReady = poseDetector.available
+        analyzer.setPoseInterval(POSE_FRAME_INTERVAL)
+        if (poseReady) {
+            analyzer.poseListener = { bitmap, timestampNs -> submitPoseFrame(bitmap, timestampNs) }
+        }
+        _uiState.update { state ->
+            state.copy(
+                poseAvailable = poseReady,
+                statusMessage = if (poseReady) {
+                    state.statusMessage
+                } else {
+                    "姿態模型不可用，出手偵測停用（其餘功能正常）"
+                }
+            )
+        }
+    }
+
+    /**
+     * 姿態取幀：在分析執行緒上先縮圖（成本 ~1ms），再把推論丟到獨立執行緒。
+     * 若上一幀還在推論就整幀丟棄——出手偵測看的是峰值趨勢，不需要補幀。
+     */
+    private fun submitPoseFrame(bitmap: Bitmap, timestampNs: Long) {
+        if (!poseBusy.compareAndSet(false, true)) return
+        val scaled = try {
+            val targetWidth = POSE_INPUT_WIDTH
+            val ratio = targetWidth.toFloat() / bitmap.width.toFloat()
+            val targetHeight = (bitmap.height * ratio).toInt().coerceAtLeast(1)
+            Bitmap.createScaledBitmap(bitmap, targetWidth, targetHeight, true)
+        } catch (t: Throwable) {
+            poseBusy.set(false)
+            return
+        }
+        val timestampMs = timestampNs / 1_000_000L
+        poseExecutor.execute {
+            try {
+                poseFrameCount++
+                val wrist = poseDetector.detectWrist(scaled, timestampMs)
+                if (wrist != null) {
+                    wristSampleCount++
+                    releaseDetector.update(
+                        WristSample(
+                            timestampMs = timestampMs,
+                            x = wrist.x,
+                            y = wrist.y,
+                            visibility = wrist.visibility
+                        )
+                    )?.let { release -> onReleaseDetected(release) }
+                }
+            } catch (t: Throwable) {
+                // 單幀推論失敗不影響球體追蹤，靜默跳過
+            } finally {
+                scaled.recycle()
+                poseBusy.set(false)
+            }
+        }
+    }
+
+    private fun onReleaseDetected(release: ReleaseDetector.Release) {
+        val now = SystemClock.elapsedRealtime()
+        val offset = if (_uiState.value.isRecording && recordStartedElapsedMs > 0L) {
+            release.timestampMs - recordStartedElapsedMs
+        } else {
+            null
+        }
+        if (offset != null && offset in 0L..MAX_CLIP_CENTER_MS) {
+            lastReleaseOffsetMs = offset
+            lastReleaseAtElapsedMs = now
+        }
+        releaseCount++
+        _uiState.update { state ->
+            state.copy(
+                releaseOffsetMs = offset,
+                statusMessage = if (offset != null) {
+                    "出手偵測：${offset} ms（加速度 ${String.format(Locale.US, "%.1f", release.acceleration)}）"
+                } else {
+                    "出手偵測：加速度峰值（未錄影，無法剪輯）"
+                }
+            )
         }
     }
 
@@ -444,7 +563,11 @@ class CameraViewModel @Inject constructor(
         }
 
         metricsCalculator.reset()
+        releaseDetector.reset()
+        lastReleaseOffsetMs = null
+        lastReleaseAtElapsedMs = 0L
         recordStartedAtMillis = System.currentTimeMillis()
+        recordStartedElapsedMs = SystemClock.elapsedRealtime()
 
         try {
             recording = pending.start(ContextCompat.getMainExecutor(context)) { event ->
@@ -493,7 +616,10 @@ class CameraViewModel @Inject constructor(
                             statusMessage = "已儲存 ${file.name}"
                         )
                     }
-                    viewModelScope.launch { saveRecordingSession(file, duration) }
+                    viewModelScope.launch {
+                        saveRecordingSession(file, duration)
+                        autoClipIfNeeded(file)
+                    }
                 }
             }
 
@@ -516,7 +642,8 @@ class CameraViewModel @Inject constructor(
             calibrated = metrics.speedCalibrated,
             videoPath = file.absolutePath,
             detectedFps = _uiState.value.requestedFps,
-            trackedFrames = metrics.trackedFrames
+            trackedFrames = metrics.trackedFrames,
+            releaseOffsetMs = currentReleaseOffset()
         )
         runCatching { repository.save(session) }
     }
@@ -535,9 +662,51 @@ class CameraViewModel @Inject constructor(
             calibrated = metrics.speedCalibrated,
             videoPath = _uiState.value.lastRecordingPath,
             detectedFps = _uiState.value.requestedFps,
-            trackedFrames = metrics.trackedFrames
+            trackedFrames = metrics.trackedFrames,
+            releaseOffsetMs = currentReleaseOffset()
         )
         runCatching { repository.save(session) }
+    }
+
+    /** 只有「最近 6 秒內」的出手才對應當前這一球 */
+    private fun currentReleaseOffset(): Long? {
+        val offset = lastReleaseOffsetMs ?: return null
+        val ageMs = SystemClock.elapsedRealtime() - lastReleaseAtElapsedMs
+        return if (ageMs in 0L..MAX_CLIP_CENTER_MS) offset else null
+    }
+
+    /**
+     * 自動剪輯：從剛封裝好的錄影裁出「出手前後各 2 秒」。
+     * 剪輯是純容器層複製（不重編碼），在 IO 執行緒跑，失敗只記錄狀態不影響紀錄。
+     */
+    private suspend fun autoClipIfNeeded(file: File) {
+        val offset = lastReleaseOffsetMs ?: return
+        if (!file.exists() || file.length() == 0L) return
+        val clipFile = File(file.parentFile, file.nameWithoutExtension + "_pitch.mp4")
+        val success = withContext(Dispatchers.IO) {
+            clipExtractor.extract(
+                input = file,
+                output = clipFile,
+                centerMs = offset,
+                beforeMs = CLIP_BEFORE_MS,
+                afterMs = CLIP_AFTER_MS
+            )
+        }
+        if (success) {
+            runCatching { repository.updateClip(file.absolutePath, clipFile.absolutePath) }
+            _uiState.update {
+                it.copy(
+                    lastClipPath = clipFile.absolutePath,
+                    statusMessage = "已產生出手片段 ${clipFile.name}"
+                )
+            }
+        } else {
+            _uiState.update {
+                it.copy(
+                    statusMessage = "出手片段產生失敗（原始影片仍已保留）"
+                )
+            }
+        }
     }
 
     // ------------------------------------------------------------------ 交互

@@ -21,6 +21,9 @@ interface PitchSessionDao {
     @Query("SELECT COUNT(*) FROM pitch_sessions")
     fun observeCount(): Flow<Int>
 
+    @Query("UPDATE pitch_sessions SET clip_path = :clipPath WHERE video_path = :videoPath")
+    suspend fun updateClipPath(videoPath: String, clipPath: String)
+
     @Query("DELETE FROM pitch_sessions WHERE id = :id")
     suspend fun deleteById(id: Long)
 

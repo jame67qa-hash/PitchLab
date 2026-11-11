@@ -1,4 +1,4 @@
-﻿# PitchLab（Android）— Phase 1 + 2：高速相機、四點標定與投球紀錄
+# PitchLab（Android）— Phase 1 + 2 + 3：高速相機、四點標定、投球紀錄與自動剪輯
 
 棒球投球追蹤與分析 App 的實作進度。Phase 1 把**高幀率取像 → 逐幀 CV → 物理量換算 → 資料落庫**
 這條主鏈打通並可驗證；Phase 2 在此之上補上「**場地四點標定 → 以雷達實測值校準球速 → 好球帶判定
@@ -30,10 +30,12 @@
 | 逐幀指標聚合 + 出手判定 + 落點外推 | `domain/cv/PitchMetricsCalculator.kt` | ✅ |
 | Room 落庫 | `data/local/*`、`data/repository/*` | ✅ |
 | 60/120fps 幀率鎖定 | `core/camera/CameraFpsSelector.kt` + ViewModel 的 `Camera2Interop` | ✅ |
-| 出手點前後緩衝（供 Phase 3 自動剪輯） | `domain/cv/CircularFrameBuffer.kt` | 已實作，尚未接到 MediaPipe |
+> Phase 1 的 `CircularFrameBuffer` 是「邊錄邊存記憶體緩衝」的預留設計；Phase 3 最後改用
+> **已寫入磁碟的 MP4 + MediaExtractor 免重編碼裁切**，理由見第 8.3 節（省記憶體、抗程序被殺、
+> 片段可直接分享）。緩衝類別保留但不在主流程使用，不影響功能。
 
-> MediaPipe **已接進 Gradle 與 Manifest**，Phase 1 不啟動推論（推論屬 Phase 3 的出手偵測），
-> 但 `PitchAnalyzer.frameListener` 已預留 Bitmap 出口，Phase 3 直接把幀丟給 PoseLandmarker 即可。
+> MediaPipe 在 Phase 3 已正式啟用：`domain/pose/PoseLandmarkerDetector.kt` 載入
+> `assets/pose_landmarker_lite.task`，由 `PitchAnalyzer.poseListener` 每 3 幀餵一張 upright Bitmap。
 
 ---
 
@@ -179,12 +181,15 @@ app/src/main/java/com/pitchlab/
 │   │   ├── CalibrationGeometry.kt # 角點 → 好球帶框（aspect 修正）
 │   │   ├── StrikeZoneEvaluator.kt # 好球/壞球（含球半徑寬容）
 │   │   ├── CalibrationRegistry.kt # @Volatile speedScale（逐幀路徑用）
-│   │   └── CircularFrameBuffer.kt
+│   │   ├── ReleaseDetector.kt     # 手腕加速度峰值 → 出手點（純 Kotlin 可測）
+│   │   └── CircularFrameBuffer.kt # Phase 1 預留，主流程改用 MP4 裁切
+│   ├── pose/PoseLandmarkerDetector.kt   # MediaPipe Pose（assets 模型、失敗降級）
+│   ├── media/PitchClipExtractor.kt      # MediaExtractor+MediaMuxer 免重編碼裁片段
 │   └── repository/                # PitchSessionRepository / CalibrationRepository
 ├── data/
-│   ├── local/                     # Room Entity / Dao / Database（v2 + 顯式 migration）
+│   ├── local/                     # Room Entity / Dao / Database（v3 + 顯式 migration）
 │   └── repository/                # RoomPitchSessionRepository / RoomCalibrationRepository
-├── di/AppModule.kt                # Hilt providers + MIGRATION_1_2
+├── di/AppModule.kt                # Hilt providers + MIGRATION_1_2 / 2_3
 └── ui/
     ├── PitchLabNavHost.kt         # camera ↔ history
     ├── camera/CameraScreen.kt, CameraViewModel.kt
@@ -352,6 +357,18 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 - [ ] 關掉 App 重開，標定與紀錄仍在（Room v2 沒被 destructive migration 清掉）
 - [ ] 投 5 球後「好 N / 壞 N」與歷史頁好球率一致
 - [ ] 歷史頁可單筆刪除、可清空；`MPH · CAL/EST` 與錄影檔名正確
+- [ ] 歷史頁上方出現「進壘點分佈」散點圖，好球綠點落在框內、壞球紅點落在框外
+- [ ] 「球速趨勢」折線與列表中最快/平均球速一致；沒有進壘點時散點圖不出現假點
+
+### 手機端驗收清單（Phase 3）
+
+- [ ] 相機頁狀態列出現 `出手 AUTO`（若顯示 `出手 OFF`，表示姿態模型載入失敗，看 logcat `PoseLandmarker`）
+- [ ] 投球時甩臂結束後狀態列出現 `出手偵測：N ms`，數字合理（約 300–1500 ms，視你按錄影的時機）
+- [ ] 錄影結束後歷史頁該筆出現「▶ 出手片段」，點擊可用系統播放器開啟且**有聲音**
+- [ ] 片段長度約 4 秒（前 2 秒 + 後 2 秒），開頭可能比出手點再早一點（同步幀對齊所致，屬正常）
+- [ ] 沒偵測到出手的錄影仍然保留原始 mp4，只是沒有片段（不應該整個檔案消失）
+- [ ] 升級安裝（Phase 2 → Phase 3）後舊紀錄仍在，且新欄位為空（Room v2→v3 遷移成功）
+- [ ] 姿態推論不應讓球速延遲明顯變大：狀態列 `ms/幀` 與 Phase 2 相比增加 < 8 ms
 
 ---
 
@@ -359,33 +376,119 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 
 | 項目 | 結果 |
 |---|---|
-| `./gradlew assembleDebug` | BUILD SUCCESSFUL（AGP 8.5.2 / Gradle 8.9 / JDK 17） |
-| 單元測試 | **28 tests, 0 failures**（Phase 1 的 11 + Phase 2 的 17） |
-| APK | 134 MB，`com.pitchlab` **v1.0.0-phase2**，minSdk 24 / target 34 |
+| `gradle assembleDebug testDebugUnitTest` | BUILD SUCCESSFUL（AGP 8.5.2 / Gradle 8.9 / JDK 17） |
+| 單元測試 | **33 tests, 0 failures**（Phase 1 的 11 + Phase 2 的 17 + Phase 3 的 5） |
+| APK | 144 MB（含 5.6 MB 姿態模型），`com.pitchlab` **v1.0.0-phase3**，minSdk 24 / target 34 |
 | 簽章 | APK Signature Scheme v2：Verifies |
-| Room 遷移 | `1.json` / `2.json` schema 與 `MIGRATION_1_2` 的 SQL 逐欄位一致（含 `DEFAULT 0`） |
+| Room 遷移 | `1.json` / `2.json` / `3.json` 與 `MIGRATION_1_2`、`MIGRATION_2_3` 逐欄位一致 |
 | 原生庫 | `libopencv_java4.so`（3 ABI）、`libmediapipe_tasks_vision_jni.so`（arm64/armv7） |
+| 資產 | `assets/pose_landmarker_lite.task`（5,777,746 bytes，已確認打包進 APK） |
+| FileProvider | `res/xml/file_paths.xml` 只暴露 `Movies/pitches/`（非全域 external-path） |
 | 權限 | CAMERA / RECORD_AUDIO / WRITE_EXTERNAL_STORAGE(≤28) / READ_MEDIA_VIDEO |
 
-**未驗證（缺實機 / 無 KVM 模擬器）**：相機實際幀率、真實球速精度、錄影檔案可播放性、
-不同廠商的 `CONTROL_AE_AVAILABLE_TARGET_FPS_RANGES` 行為。這些必須在實機上跑第 5 節清單。
+**未驗證（缺實機 / 無 KVM 模擬器）**：相機實際幀率、真實球速精度、錄影與剪輯檔可播放性、
+MediaPipe 在實機的單幀延遲、不同廠商的 `CONTROL_AE_AVAILABLE_TARGET_FPS_RANGES` 行為。
+這些必須在實機上跑第 6 節清單。
 
 ---
 
-## 8. 下一階段（Phase 3）介面預留位置
+## 8. Phase 3 追加：MediaPipe 出手偵測與自動剪輯
 
-- `PitchAnalyzer.frameListener` → 直接餵 MediaPipe `PoseLandmarker`（手腕/手肘節點），
-  用腕關節加速度峰值判定出手點；目前它已被 Phase 2 的凍結抓幀使用，介面不需改。
-- `CircularFrameBuffer` → 出手前一刀（前 2 秒）；出手後再收 2 秒即可交 MediaCodec 合成。
-  Phase 2 的 `CameraViewModel` 已有 `startRecordingAt(timestamp)` 的落點可用來對齊。
-- `CalibrationProfile` → Phase 3 加相機俯仰角/位置姿態後，好球判定可從「忽略俯仰」升級為
-  完整的 3D 投影；現有欄位可向後相容（新增而非改寫）。
-- `HistoryScreen` 的 `SessionRow` → 之後接「單球回放 / 剪輯片段播放」只需在該列加一個播放鍵。
+### 8.1 為什麼用「加速度峰值」判定出手
+
+投手從抬腿到放球，手腕全程都在移動。若用「速度超過門檻」判定，跨步與抬臂階段就會先觸發，
+錄到的片段會變成「投球前的準備動作」而不是放球瞬間。
+
+`ReleaseDetector` 改看**加速度**：
+
+1. 由連續幀的手腕位置算瞬時速度（歸一化單位／秒）；
+2. 再做速度差分得到加速度，超過 `accelThreshold = 8.0` 記為候選峰值；
+3. 等加速度回落到峰值的 60% 以下（甩臂結束）才**回溯**輸出峰值時間戳——
+   這一步是關鍵：輸出的是「峰值發生的那一刻」，不是「發現峰值已過的那一刻」，
+   否則剪輯中心會固定晚 100–200 ms；
+4. `cooldownMs = 900` 內不重複輸出，避免一次投球被切成兩個出手點；
+5. 可見度 < 0.5 的幀只清空速度歷史、不參與運算，避免遮擋前後用一個假位移造出假峰值。
+
+這個類別是純 Kotlin（不碰 Bitmap / MediaPipe），所以 5 個 case 可以在 JVM 上跑：
+慢速不觸發、甩腕只出一次且在區間內、900 ms 冷卻抑制第二次、低可見度忽略、`reset()` 清狀態。
+
+### 8.2 姿態管線：為什麼要降頻、為什麼要獨立執行緒
+
+MediaPipe Pose（lite）在 2 vCPU 機器上單幀約 10–20 ms，若跟著 60fps 全跑，會直接把
+球體追蹤的分析執行緒吃光。因此：
+
+- **降頻**：`poseListener` 每 3 幀送一次（`POSE_FRAME_INTERVAL = 3`），實測 60fps 下約 20 次推論／秒，
+  對「峰值時間」的解析度是 50 ms 級，足夠定位 4 秒片段的中心；
+- **先縮圖**：在分析執行緒上先縮到 384 寬（`POSE_INPUT_WIDTH`），轉換成本從 720p 的 ~3 MB
+  降到 ~0.5 MB，推論本身也更快；
+- **獨立執行緒 + 丟幀**：`pitchlab-pose` 執行緒 + `AtomicBoolean poseBusy`，
+  上一幀還在推論就整幀丟棄。出手偵測看的是趨勢，補幀只會累積延遲；
+- **與標定抓幀分開**：Phase 2 的 `frameListener` 是「精確一幀、可暫停」，Phase 3 的
+  `poseListener` 是「持續、可降頻」，兩者生命週期不同，共用一個 slot 會互相覆蓋（這是實際踩過的坑）。
+
+模型 `pose_landmarker_lite.task`（5.6 MB，sha256 前 16 碼 `59929e1d1ee95287`）放在 `assets/`，
+離線可用、不在執行期下載。若初始化失敗（模型缺失／ABI 不支援），`available` 回 false，
+App 只停用出手偵測，球速與標定照常運作——是刻意設計的降級路徑，不是隱性崩潰。
+
+### 8.3 剪輯：為什麼不重新編碼
+
+重新編碼要跑一整條 MediaCodec 管線，1080p 素材在手機上很吃 CPU，而且會二次損失畫質。
+`PitchClipExtractor` 改用 `MediaExtractor` + `MediaMuxer` **直接複製已編碼的取樣**：
+
+- 影片軌 `SEEK_TO_PREVIOUS_SYNC` 對齊到前一個同步幀（I 幀），失敗再退 3 秒找最近同步幀；
+- 逐軌處理：MediaExtractor 沒有 `unselectAllTracks()`，必須 `unselectTrack(index)` 逐軌切換
+  （**這是 Phase 3 唯一的編譯錯誤**，API 名稱想錯了）；
+- 每軌 `writeSampleData` 前把 `presentationTimeUs` 平移到 `sampleTime - startUs`，
+  否則片段開頭會有幾秒空白（muxer 從 0 開始計時，但 extractor 給的是原始時間戳）；
+- 音軌也一起複製，片段才有聲音；`stop()` 後驗證檔案非空才算成功。
+
+代價是切割點只能落在 I 幀，實際起點會比要求時間稍早（通常 0.5–2 秒），這是可接受的取捨：
+換來 100–300 ms 的剪輯耗時與零畫質損失。
+
+輸出檔名 `原始檔名_pitch.mp4`，例如 `PITCH_20261111_210233_pitch.mp4`。
+
+### 8.4 資料庫 v3 與對外開啟片段
+
+`pitch_sessions` 追加兩欄（皆 nullable，不動舊欄位）：
+
+| 欄位 | 型別 | 用途 |
+|---|---|---|
+| `clip_path` | TEXT | 自動剪輯片段絕對路徑；null = 未剪輯／失敗 |
+| `release_offset_ms` | INTEGER | 出手時間相對錄影開始的偏移，供重新剪輯或除錯 |
+
+`MIGRATION_2_3` 只有兩條 `ALTER TABLE ... ADD COLUMN`，並與自動產生的
+`app/schemas/com.pitchlab.data.local.PitchLabDatabase/3.json` 逐欄位核對一致（nullable、無 DEFAULT）。
+
+開啟片段走 `FileProvider`（authority `${applicationId}.fileprovider`，只暴露
+`getExternalFilesDir(Movies)/pitches`，不是全域 `external-path`）：Android 7+ 禁止跨 App 傳
+`file://`，少了這段會直接 `FileUriExposedException`。
+
+### 8.5 Phase 3 已知限制
+
+- 出手偵測依賴**手臂在畫面內且不被遮擋**；投手若整個人出框，MediaPipe 給不出手腕。
+- 沒有 IMU 輔助：手機若同時大幅晃動，手腕加速度會被相機運動污染。
+- 片段中心的解析度受降頻影響（約 50 ms），不是「精確到單幀」；要更精確可把
+  `POSE_FRAME_INTERVAL` 調到 2，代價是每幀多 5–8 ms。
+- 上述能力都只在 JVM 單元測試與編譯層驗證過；實機的推論延遲與剪輯檔案可播放性
+  仍要跑第 6 節的 Phase 3 驗收清單。
+
 ---
 
-## 9. 授權與版本
+## 9. 下一階段（Phase 4）
 
-- 授權：MIT（見 `LICENSE`）。
-- 版本：`1.0.0-phase2`（versionCode 1）。
-- 第三方：OpenCV 4.10.0（Apache-2.0）、MediaPipe Tasks Vision（Apache-2.0）、CameraX / Compose / Room / Hilt（Apache-2.0），皆以 Maven 依賴引入，未修改原始碼。
-- 本專案不含任何金鑰或簽章檔；`local.properties` 由使用者自行產生（範例見 `local.properties.example`）。
+- 出手影格的「靜態姿勢評分」：用 MediaPipe 33 點算肩髖分離、前導手肘角度、放球高度，
+  給出可比較的姿勢分數，而不是只有球速。
+- 多球序列比對：把同一次練投的 10 球疊在同一張好球帶圖上做熱區分析（Phase 3 已有散點圖基礎）。
+- 3D 軌跡：加入相機俯仰角／高度後，把目前的「忽略俯仰」投影升級為完整 3D 重建。
+- 匯出：把歷史紀錄與片段打包成 CSV + MP4 分享包（目前片段已是獨立檔案，只缺批次匯出）。
+
+---
+
+## 10. 授權與版本
+
+- 授權：MIT（見 `LICENSE`，Copyright 2026 PitchLab contributors）。
+- 版本：`1.0.0-phase3`（versionCode 3）。
+- 第三方：OpenCV 4.10.0（Apache-2.0）、CameraX 1.4.0（Apache-2.0）、
+  MediaPipe Tasks 0.10.14（Apache-2.0）、MediaPipe Pose Landmarker lite 模型（Apache-2.0）。
+- 倉庫不含任何金鑰／keystore；debug 簽章由本機 `${HOME}/.android/debug.keystore` 產生。
+  `local.properties`（SDK 路徑）不進版控，請複製 `local.properties.example` 自行填寫。
