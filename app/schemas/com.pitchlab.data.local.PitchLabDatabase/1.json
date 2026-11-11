@@ -1,0 +1,106 @@
+{
+  "formatVersion": 1,
+  "database": {
+    "version": 1,
+    "identityHash": "a18f016528c950cd0866c5b7747fc9ad",
+    "entities": [
+      {
+        "tableName": "pitch_sessions",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `started_at` INTEGER NOT NULL, `duration_ms` INTEGER NOT NULL, `fastest_mph` REAL, `average_mph` REAL, `horizontal_break_in` REAL, `vertical_break_in` REAL, `plate_x_in` REAL, `plate_y_in` REAL, `video_path` TEXT, `detected_fps` INTEGER NOT NULL, `tracked_frames` INTEGER NOT NULL, `created_at` INTEGER NOT NULL)",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "startedAtMillis",
+            "columnName": "started_at",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "durationMillis",
+            "columnName": "duration_ms",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "fastestMph",
+            "columnName": "fastest_mph",
+            "affinity": "REAL",
+            "notNull": false
+          },
+          {
+            "fieldPath": "averageMph",
+            "columnName": "average_mph",
+            "affinity": "REAL",
+            "notNull": false
+          },
+          {
+            "fieldPath": "horizontalBreakInches",
+            "columnName": "horizontal_break_in",
+            "affinity": "REAL",
+            "notNull": false
+          },
+          {
+            "fieldPath": "verticalBreakInches",
+            "columnName": "vertical_break_in",
+            "affinity": "REAL",
+            "notNull": false
+          },
+          {
+            "fieldPath": "plateXInches",
+            "columnName": "plate_x_in",
+            "affinity": "REAL",
+            "notNull": false
+          },
+          {
+            "fieldPath": "plateYInches",
+            "columnName": "plate_y_in",
+            "affinity": "REAL",
+            "notNull": false
+          },
+          {
+            "fieldPath": "videoPath",
+            "columnName": "video_path",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "detectedFps",
+            "columnName": "detected_fps",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "trackedFrames",
+            "columnName": "tracked_frames",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "createdAtMillis",
+            "columnName": "created_at",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": true,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [],
+        "foreignKeys": []
+      }
+    ],
+    "views": [],
+    "setupQueries": [
+      "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, 'a18f016528c950cd0866c5b7747fc9ad')"
+    ]
+  }
+}

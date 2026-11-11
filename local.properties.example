@@ -1,0 +1,4 @@
+# 複製此檔為 local.properties 後填入自己的 SDK 路徑
+# Windows 範例：sdk.dir=C\:\\Users\\<你的使用者名稱>\\AppData\\Local\\Android\\Sdk
+# macOS / Linux 範例：sdk.dir=/Users/<你的使用者名稱>/Library/Android/sdk
+sdk.dir=C\:\\Users\\user\\AppData\\Local\\Android\\Sdk
