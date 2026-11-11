@@ -4,6 +4,7 @@
 
     <!-- 相機：預覽 / 高幀率錄影 / 逐幀分析 -->
     <uses-permission android:name="android.permission.CAMERA" />
+    <uses-permission android:name="android.permission.VIBRATE" />
     <!-- 麥克風：錄影時同步收音（可選權限，缺失時靜音錄製） -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <!-- API 28 及以下寫外部儲存 -->

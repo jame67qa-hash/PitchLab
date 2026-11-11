@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.Intent
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -22,16 +23,24 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.Checkbox
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Text
+import androidx.compose.material3.Checkbox
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.TextButton
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -47,6 +56,11 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.pitchlab.domain.cv.BaselineDelta
+import com.pitchlab.domain.cv.MechanicsBaseline
+import com.pitchlab.domain.cv.MechanicsBaselineCalculator
+import com.pitchlab.domain.export.ExportOptions
+import com.pitchlab.domain.export.ExportSelector
 import com.pitchlab.domain.model.PitchSession
 import com.pitchlab.ui.theme.AlarmRed
 import com.pitchlab.ui.theme.LaserCyan
@@ -76,6 +90,7 @@ fun HistoryScreen(
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     val context = LocalContext.current
+    var showExportDialog by remember { mutableStateOf(false) }
 
     // 匯出完成 -> 交給系統分享（ViewModel 只給路徑，Intent 留在 UI 層）
     LaunchedEffect(state.shareZipPath) {
@@ -118,11 +133,14 @@ fun HistoryScreen(
                     fontSize = 11.sp
                 )
             }
-            IconButton(onClick = viewModel::exportAll, enabled = !state.exporting) {
+            IconButton(
+                onClick = { showExportDialog = true },
+                enabled = !state.exporting && state.sessions.isNotEmpty()
+            ) {
                 Icon(
                     imageVector = Icons.Filled.Share,
                     contentDescription = "匯出分享包",
-                    tint = if (state.exporting) TextSecondary else LaserCyan
+                    tint = if (state.exporting || state.sessions.isEmpty()) TextSecondary else LaserCyan
                 )
             }
             TextButton(onClick = viewModel::clearAll) {
@@ -140,6 +158,10 @@ fun HistoryScreen(
                 null
             }
         )
+
+        state.baseline?.let { baseline ->
+            BaselineCard(baseline = baseline, deltas = state.baselineDeltas)
+        }
 
         if (state.sessions.isNotEmpty()) {
             Row(
@@ -176,6 +198,94 @@ fun HistoryScreen(
                 item { Spacer(Modifier.height(12.dp)) }
             }
         }
+    }
+
+    if (showExportDialog) {
+        ExportOptionsDialog(
+            sessionCount = state.sessions.size,
+            strikeCount = state.strikeCount,
+            onDismiss = { showExportDialog = false },
+            onConfirm = { options ->
+                showExportDialog = false
+                viewModel.exportAll(options)
+            }
+        )
+    }
+}
+
+/**
+ * 匯出條件對話框：三個決策點（好球/天數/媒體），預設值是「全部 + 300 MB 片段」。
+ * 只匯出 CSV+PNG 的選項很重要——有些教練只想要表格，而且檔案小到一定能傳出去。
+ */
+@Composable
+private fun ExportOptionsDialog(
+    sessionCount: Int,
+    strikeCount: Int,
+    onDismiss: () -> Unit,
+    onConfirm: (ExportOptions) -> Unit
+) {
+    var strikesOnly by remember { mutableStateOf(false) }
+    var daysBack by remember { mutableStateOf<Int?>(null) }
+    var maxMediaBytes by remember { mutableStateOf(ExportOptions.DEFAULT.maxMediaBytes) }
+    val options = ExportOptions(strikesOnly = strikesOnly, daysBack = daysBack, maxMediaBytes = maxMediaBytes)
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("匯出分享包", fontSize = 16.sp, fontWeight = FontWeight.SemiBold) },
+        text = {
+            Column {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Checkbox(checked = strikesOnly, onCheckedChange = { strikesOnly = it })
+                    Text("只含好球（$strikeCount / $sessionCount）", color = TextPrimary, fontSize = 12.sp)
+                }
+                Text("時間範圍", color = TextSecondary, fontSize = 10.sp)
+                ChoiceRow("全部紀錄", daysBack == null) { daysBack = null }
+                ChoiceRow("最近 7 天", daysBack == 7) { daysBack = 7 }
+                ChoiceRow("最近 30 天", daysBack == 30) { daysBack = 30 }
+                Spacer(Modifier.height(6.dp))
+                Text("影片媒體", color = TextSecondary, fontSize = 10.sp)
+                ChoiceRow("含片段（上限 300 MB）", maxMediaBytes == 300L * 1024 * 1024) {
+                    maxMediaBytes = 300L * 1024 * 1024
+                }
+                ChoiceRow("含片段（上限 100 MB）", maxMediaBytes == 100L * 1024 * 1024) {
+                    maxMediaBytes = 100L * 1024 * 1024
+                }
+                ChoiceRow("不含影片（只匯出 CSV + PNG）", maxMediaBytes == ExportOptions.NO_MEDIA) {
+                    maxMediaBytes = ExportOptions.NO_MEDIA
+                }
+                Spacer(Modifier.height(6.dp))
+                Text(
+                    text = "將匯出：${ExportSelector.describe(options)}",
+                    color = LaserCyan,
+                    fontSize = 10.sp
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = { onConfirm(options) }) {
+                Text("開始匯出", color = LaserCyan)
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("取消", color = TextSecondary) }
+        },
+        containerColor = PitchSurface
+    )
+}
+
+@Composable
+private fun ChoiceRow(label: String, selected: Boolean, onClick: () -> Unit) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+    ) {
+        RadioButton(selected = selected, onClick = onClick)
+        Text(label, color = TextPrimary, fontSize = 12.sp)
     }
 }
 
@@ -355,6 +465,86 @@ private fun SpeedTrendCard(trend: List<Double>, modifier: Modifier) {
                 fontSize = 7.sp
             )
         }
+    }
+}
+
+
+/**
+ * 個人基準卡：把「通用理想區間」換成「你自己的中位數」。
+ *
+ * 樣本不足 5 球時只顯示提示、不顯示數字：用兩球建立的基準會誤導使用者。
+ * 偏差只標出超過容許誤差的項目，避免「每次都在差 0.4 度」的雜訊。
+ */
+@Composable
+private fun BaselineCard(baseline: MechanicsBaseline, deltas: List<BaselineDelta>) {
+    Card(
+        colors = CardDefaults.cardColors(containerColor = PitchSurface),
+        shape = RoundedCornerShape(12.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 12.dp, vertical = 4.dp)
+    ) {
+        Column(modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = "個人基準",
+                    color = TextPrimary,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.SemiBold
+                )
+                Spacer(Modifier.width(6.dp))
+                Text(
+                    text = "${baseline.sampleCount} 球中位數" +
+                        (baseline.averageScore?.let { " · 平均 ${it.toInt()} 分" } ?: ""),
+                    color = TextSecondary,
+                    fontSize = 8.sp
+                )
+            }
+            if (!baseline.isUsable) {
+                Text(
+                    text = "再投 ${MechanicsBaselineCalculator.MIN_SAMPLES - baseline.sampleCount} 球後開始顯示基準",
+                    color = RadarAmber,
+                    fontSize = 9.sp
+                )
+                return@Column
+            }
+            Spacer(Modifier.height(6.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                BaselineCell("肩髖", baseline.separationDeg, "°", Modifier.weight(1f))
+                BaselineCell("肘角", baseline.elbowDeg, "°", Modifier.weight(1f))
+                BaselineCell("前傾", baseline.trunkTiltDeg, "°", Modifier.weight(1f))
+                BaselineCell("放球高", baseline.releaseHeightRatio, "", Modifier.weight(1f))
+            }
+            if (deltas.isNotEmpty()) {
+                Spacer(Modifier.height(6.dp))
+                val significant = deltas.filter { it.significant }
+                Text(
+                    text = if (significant.isEmpty()) {
+                        "上一球：四項都在你的正常範圍內"
+                    } else {
+                        "上一球 vs 基準：" + significant.joinToString("、") {
+                            "${it.label} ${it.deltaText(if (it.unit.isEmpty()) 2 else 0)}"
+                        }
+                    },
+                    color = if (significant.isEmpty()) StrikeZoneGreen else RadarAmber,
+                    fontSize = 9.sp
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun BaselineCell(label: String, value: Double?, unit: String, modifier: Modifier) {
+    Column(modifier = modifier) {
+        Text(text = label, color = TextSecondary, fontSize = 8.sp)
+        Text(
+            text = value?.let { String.format(Locale.US, "%.1f", it) } ?: "—",
+            color = TextPrimary,
+            fontSize = 14.sp,
+            fontWeight = FontWeight.SemiBold
+        )
+        Text(text = unit.ifEmpty { "RATIO" }, color = TextSecondary.copy(alpha = 0.55f), fontSize = 7.sp)
     }
 }
 

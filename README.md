@@ -1,4 +1,4 @@
-# PitchLab（Android）— Phase 1–5：高速相機、四點標定、自動剪輯、姿勢評分與匯出分享
+# PitchLab（Android）— Phase 1–8：高速相機、四點標定、自動剪輯、姿勢評分、匯出、個人基準與出手回饋
 
 棒球投球追蹤與分析 App 的實作進度。Phase 1 把**高幀率取像 → 逐幀 CV → 物理量換算 → 資料落庫**
 這條主鏈打通並可驗證；Phase 2 在此之上補上「**場地四點標定 → 以雷達實測值校準球速 → 好球帶判定
@@ -13,6 +13,10 @@
 - 相機：CameraX 1.4.0（Camera2Interop 鎖 AE 幀率）
 - CV / AI：OpenCV 4.10.0（官方 Maven AAR）、MediaPipe Tasks Vision 0.10.14
 - 導航：Navigation Compose 2.8.4（相機頁 ↔ 紀錄頁）
+
+Phase 6–8 在既有量測上補「跟自己比」與「不用看螢幕也能練」：
+個人化機制基準（歷史中位數）、可條件的匯出包（只好球／最近 N 天／媒體上限）、
+出手後的語音＋震動回饋（預設關閉）。
 
 ---
 
@@ -391,6 +395,27 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 - [ ] 沒有剪輯片段的球，`media/` 內帶的是原始 mp4；有片段的球帶 `_pitch.mp4`
 - [ ] 紀錄很多時若媒體超過 300 MB，README.txt 會寫出未複製的球數（不是默默漏掉）
 
+### 手機端驗收清單（Phase 6）
+
+- [ ] 投滿 5 球後歷史頁出現「個人基準」，顯示肩髖/肘角/前傾/放球高的中位數與平均分數
+- [ ] 未滿 5 球時顯示「再投 N 球後開始顯示基準」，**不會**拿 2 球去算基準
+- [ ] 刻意改變動作（例如前傾特別多）後，「上一球 vs 基準」會標出該項偏差
+- [ ] 偏差在容許範圍內時顯示「四項都在你的正常範圍內」，不逐一列出 0.x 度的差
+
+### 手機端驗收清單（Phase 7）
+
+- [ ] 點分享圖示先跳出「匯出分享包」對話框，可選只含好球、最近 7/30 天、媒體上限
+- [ ] 選「最近 7 天 + 只含好球」後，zip 內 CSV 的球數與歷史頁近 7 天好球數一致
+- [ ] 選「不含影片」時 zip 只有 CSV + PNG + README，檔案通常在 1 MB 以內
+- [ ] README.txt 第一行會寫出這次的匯出條件（非預設值時可追溯）
+
+### 手機端驗收清單（Phase 8）
+
+- [ ] 相機頁「回饋 OFF」預設關閉；開啟後投一球會先震動、再听到「好球，72 英里」
+- [ ] 好球是單一下短震、壞球是兩下，關掉語音也能分辨（TTS 不可用時只剩震動）
+- [ ] 重開 App 後回饋開關狀態仍保留（SharedPreferences）
+- [ ] 未校準時播報會說「預估 72 英里」，不會把單目估算講成真實球速
+
 ---
 
 ## 7. 已完成的機器驗證
@@ -398,14 +423,14 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 | 項目 | 結果 |
 |---|---|
 | `gradle assembleDebug testDebugUnitTest` | BUILD SUCCESSFUL（AGP 8.5.2 / Gradle 8.9 / JDK 17） |
-| 單元測試 | **43 tests, 0 failures**（Phase 1 的 11 + Phase 2 的 17 + Phase 3 的 5 + Phase 4 的 6 + Phase 5 的 4） |
-| APK | 144 MB（含 5.6 MB 姿態模型），`com.pitchlab` **v1.0.0-phase5**，minSdk 24 / target 34 |
+| 單元測試 | **57 tests, 0 failures**（Phase 1 的 11 + Phase 2 的 17 + Phase 3 的 5 + Phase 4 的 6 + Phase 5 的 4 + Phase 6 的 5 + Phase 7 的 5 + Phase 8 的 4） |
+| APK | 144 MB（含 5.6 MB 姿態模型），`com.pitchlab` **v1.0.0-phase8**，minSdk 24 / target 34 |
 | 簽章 | APK Signature Scheme v2：Verifies |
 | Room 遷移 | `1.json`～`4.json` 與 `MIGRATION_1_2`、`2_3`、`3_4` 逐欄位一致 |
 | 原生庫 | `libopencv_java4.so`（3 ABI）、`libmediapipe_tasks_vision_jni.so`（arm64/armv7） |
 | 資產 | `assets/pose_landmarker_lite.task`（5,777,746 bytes，已確認打包進 APK） |
 | FileProvider | `file_paths.xml` 只暴露 `Movies/pitches/` 與 `Documents/PitchLabExports/`（非全域 external-path） |
-| 權限 | CAMERA / RECORD_AUDIO / WRITE_EXTERNAL_STORAGE(≤28) / READ_MEDIA_VIDEO |
+| 權限 | CAMERA / RECORD_AUDIO / VIBRATE / WRITE_EXTERNAL_STORAGE(≤28) / READ_MEDIA_VIDEO |
 
 **未驗證（缺實機 / 無 KVM 模擬器）**：相機實際幀率、真實球速精度、錄影與剪輯檔可播放性、
 MediaPipe 在實機的單幀延遲、不同廠商的 `CONTROL_AE_AVAILABLE_TARGET_FPS_RANGES` 行為。
@@ -606,20 +631,56 @@ Excel／Python 分析，英文欄名不會因全形字元或編碼在不同工�
 
 ---
 
-## 11. 下一階段（Phase 6）
+## 11. Phase 6 追加：個人化機制基準
 
-- 出手影格的「靜態姿勢評分」：用 MediaPipe 33 點算肩髖分離、前導手肘角度、放球高度，
-  給出可比較的姿勢分數，而不是只有球速。
-- 多球序列比對：把同一次練投的 10 球疊在同一張好球帶圖上做熱區分析（Phase 3 已有散點圖基礎）。
-- 3D 軌跡：加入相機俯仰角／高度後，把目前的「忽略俯仰」投影升級為完整 3D 重建。
-- 匯出：把歷史紀錄與片段打包成 CSV + MP4 分享包（目前片段已是獨立檔案，只缺批次匯出）。
+通用理想區間（肩髖 20–45°、肘 150–178°…）只能回答「像不像教科書」，回答不了
+「今天的動作跟平常比起來怎樣」。Phase 6 用**歷史中位數**建立每個使用者自己的基準。
+
+- 樣本：只取有姿勢分數的球；少於 5 球時 `isUsable = false`，UI 顯示「再投 N 球」，
+  不拿 2 球建立基準。
+- 為什麼用中位數而不是平均：一球手腕被遮住造成 5° 的離群值，就會把平均值拉歪；
+  中位數對單點失敗不敏感（有單元測試固定這個行為）。
+- 偏差容許：肩髖 5°、肘 8°、前傾 5°、放球高度 0.05；只有超過容許值的項目才在
+  「上一球 vs 基準」列出，避免每次都在差 0.4 度上做文章。
+- 限制：基準綁定「同一機位、同一距離」。換了拍攝位置，角度投影會變，基準就失效，
+  必須重新累積——這是 2D 姿勢估計的本質限制，不是資料庫問題。
+
+## 12. Phase 7 追加：可條件的匯出包
+
+Phase 5 的匯出只有一種（全部 + 300 MB 媒體）。Phase 7 把「要匯出哪些球」抽成
+`ExportOptions` + `ExportSelector`（純 Kotlin，5 個單元測試），ViewModel 與 Exporter
+不再各寫一份篩選邏輯。
+
+- 只含好球：給教練看「好球長什麼樣」時最有用。
+- 最近 7 / 30 天：以「現在」往前推，而不是以最後一筆紀錄往前推——
+  使用者問的是「我最近七天投了什麼」，不是「上次練習前七天」。
+- 媒體三檔：300 MB / 100 MB / 不含影片。不含影片時匯出包通常 < 1 MB，
+  在郵件或通訊軟體幾乎不會失敗。
+- README.txt 會寫出這次的匯出條件，非預設值時可以追溯這包是怎麼篩出來的。
+
+## 13. Phase 8 追加：出手回饋（語音＋震動）
+
+- 播報文字由 `PitchAnnouncement`（純 Kotlin）產生：「好球，72 英里」；
+  未經雷達校準時說「預估 72 英里」，避免把單目估算當真實球速。
+- 震動：好球單一下 40 ms、壞球兩下（0/30/70/30 ms），戴手套也能分辨。
+- **預設關閉**的兩個理由：錄影時喇叭會被麥克風收進片段；室內練習場會干擾旁人。
+  開關狀態存 SharedPreferences。
+- TTS 用 `zh-TW`，裝置不支援時退回 `Locale.CHINESE`；兩者都不可用時只保留震動並記錄警告，
+  不會讓回饋功能整個壞掉。
+- 限制：TTS 初始化是非同步的，App 剛啟動的前幾百毫秒可能只有震動。
+
+## 14. 下一階段（Phase 9）
+
+- 多球序列熱區：把同一次練投的 10 球疊成熱區圖（目前只有散點）。
+- 3D 軌跡：加入相機俯仰角／高度，把「忽略俯仰」的投影升級為完整 3D 重建。
+- 基準的機位綁定：在基準資料中加入機位指紋（高度/距離），換機位時自動提示重新累積。
 
 ---
 
-## 12. 授權與版本
+## 15. 授權與版本
 
 - 授權：MIT（見 `LICENSE`，Copyright 2026 PitchLab contributors）。
-- 版本：`1.0.0-phase5`（versionCode 5）。
+- 版本：`1.0.0-phase8`（versionCode 8）。
 - 第三方：OpenCV 4.10.0（Apache-2.0）、CameraX 1.4.0（Apache-2.0）、
   MediaPipe Tasks 0.10.14（Apache-2.0）、MediaPipe Pose Landmarker lite 模型（Apache-2.0）。
 - 倉庫不含任何金鑰／keystore；debug 簽章由本機 `${HOME}/.android/debug.keystore` 產生。

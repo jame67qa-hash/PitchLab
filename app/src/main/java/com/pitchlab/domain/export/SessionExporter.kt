@@ -56,9 +56,16 @@ class SessionExporter @Inject constructor(
     )
 
     @WorkerThread
-    fun export(sessions: List<PitchSession>): ExportResult {
+    fun export(
+        sessions: List<PitchSession>,
+        options: ExportOptions = ExportOptions()
+    ): ExportResult {
         if (sessions.isEmpty()) {
             return ExportResult(null, "沒有可匯出的紀錄")
+        }
+        val selected = ExportSelector.select(sessions, options)
+        if (selected.isEmpty()) {
+            return ExportResult(null, "符合「${ExportSelector.describe(options)}」條件的紀錄是 0 球")
         }
         return try {
             val stamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
@@ -66,7 +73,7 @@ class SessionExporter @Inject constructor(
                 context.getExternalFilesDir(Environment.DIRECTORY_DOCUMENTS) ?: context.filesDir,
                 "PitchLabExports"
             )
-            val workDir = File(root, "export_$stamp")
+            val workDir = File(root, "export_${stamp}_${if (options.strikesOnly) "strikes" else "all"}")
             workDir.mkdirs()
             if (!workDir.exists()) {
                 return ExportResult(null, "無法建立匯出目錄")
@@ -74,19 +81,20 @@ class SessionExporter @Inject constructor(
 
             // 1) CSV
             File(workDir, "pitchlab_sessions.csv").writeText(
-                SessionCsvFormatter.toCsv(sessions),
+                SessionCsvFormatter.toCsv(selected),
                 Charsets.UTF_8
             )
 
             // 2) 好球帶 PNG
-            writeStrikeZonePng(File(workDir, "strike_zone.png"), sessions)
+            writeStrikeZonePng(File(workDir, "strike_zone.png"), selected)
 
             // 3) 媒體（片段優先）
             val mediaDir = File(workDir, "media").apply { mkdirs() }
-            var budget = MEDIA_BUDGET_BYTES
+            var budget = options.maxMediaBytes
             var mediaCount = 0
             var skipped = 0
-            for (session in sessions) {
+            val copyMedia = options.maxMediaBytes > ExportOptions.NO_MEDIA
+            for (session in if (copyMedia) selected else emptyList()) {
                 val clip = session.clipPath?.let { File(it) }?.takeIf { it.exists() && it.length() > 0 }
                 val video = session.videoPath?.let { File(it) }?.takeIf { it.exists() && it.length() > 0 }
                 val source = clip ?: video
@@ -102,15 +110,16 @@ class SessionExporter @Inject constructor(
             }
 
             // 4) 說明檔
-            val strikeCount = sessions.count { it.isStrike == true }
-            val ballCount = sessions.count { it.isStrike == false }
-            val speeds = sessions.mapNotNull { it.fastestMph }
-            val scores = sessions.mapNotNull { it.poseScore }
+            val strikeCount = selected.count { it.isStrike == true }
+            val ballCount = selected.count { it.isStrike == false }
+            val speeds = selected.mapNotNull { it.fastestMph }
+            val scores = selected.mapNotNull { it.poseScore }
             val readme = buildString {
                 appendLine("PitchLab 匯出包")
                 appendLine("產生時間：$stamp")
-                appendLine("球數：${sessions.size}（好球 $strikeCount / 壞球 $ballCount / 未判定 ${sessions.size - strikeCount - ballCount}）")
-                if (sessions.isNotEmpty()) {
+                appendLine("匯出條件：${ExportSelector.describe(options)}")
+                appendLine("球數：${selected.size}（好球 $strikeCount / 壞球 $ballCount / 未判定 ${selected.size - strikeCount - ballCount}）")
+                if (selected.isNotEmpty()) {
                     appendLine("球速：最快 ${speeds.maxOrNull()?.let { String.format(Locale.US, "%.1f", it) } ?: "—"} mph、" +
                         "平均 ${if (speeds.isEmpty()) "—" else String.format(Locale.US, "%.1f", speeds.average())} mph")
                     appendLine("姿勢平均分：${if (scores.isEmpty()) "—" else scores.average().toInt()}")
@@ -120,7 +129,13 @@ class SessionExporter @Inject constructor(
                 appendLine("檔案：")
                 appendLine("- pitchlab_sessions.csv：全部紀錄（UTF-8 含 BOM，可直接用 Excel 開）")
                 appendLine("- strike_zone.png：好球帶進壘點圖")
-                appendLine("- media/：出手片段（前後各 2 秒，優先）或原始影片，共 $mediaCount 個")
+                appendLine(
+                    if (copyMedia) {
+                        "- media/：出手片段（前後各 2 秒，優先）或原始影片，共 $mediaCount 個"
+                    } else {
+                        "- media/：本次設定為不含影片（只匯出 CSV 與 PNG）"
+                    }
+                )
                 if (skipped > 0) {
                     appendLine("- 注意：有 $skipped 個媒體因超過 300 MB 匯出上限而未複製")
                 }
@@ -138,8 +153,8 @@ class SessionExporter @Inject constructor(
 
             ExportResult(
                 zipFile = zipFile,
-                message = "已匯出 ${sessions.size} 球（媒體 $mediaCount 個）",
-                exportedCount = sessions.size,
+                message = "已匯出 ${selected.size} 球（媒體 $mediaCount 個）",
+                exportedCount = selected.size,
                 mediaCount = mediaCount,
                 skippedMediaCount = skipped,
                 totalBytes = zipFile.length()

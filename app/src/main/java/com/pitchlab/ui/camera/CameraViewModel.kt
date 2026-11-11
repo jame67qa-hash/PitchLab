@@ -47,6 +47,8 @@ import com.pitchlab.domain.model.FrameAnalysisResult
 import com.pitchlab.domain.model.LivePitchMetrics
 import com.pitchlab.domain.model.NormalizedPoint
 import com.pitchlab.domain.model.NormalizedRect
+import com.pitchlab.domain.feedback.PitchAnnouncement
+import com.pitchlab.domain.feedback.PitchFeedbackPlayer
 import com.pitchlab.domain.media.PitchClipExtractor
 import com.pitchlab.domain.model.PitchSession
 import com.pitchlab.domain.pose.PoseFrame
@@ -98,7 +100,8 @@ class CameraViewModel @Inject constructor(
     private val poseDetector: PoseLandmarkerDetector,
     private val releaseDetector: ReleaseDetector,
     private val clipExtractor: PitchClipExtractor,
-    private val mechanicsEvaluator: PitchMechanicsEvaluator
+    private val mechanicsEvaluator: PitchMechanicsEvaluator,
+    private val feedbackPlayer: PitchFeedbackPlayer
 ) : ViewModel() {
 
     private companion object {
@@ -192,6 +195,7 @@ class CameraViewModel @Inject constructor(
         // Phase 3：姿態 -> 出手偵測 -> 自動剪輯
         val poseReady = poseDetector.available
         analyzer.setPoseInterval(POSE_FRAME_INTERVAL)
+        _uiState.update { it.copy(feedbackEnabled = feedbackPlayer.enabled) }
         if (poseReady) {
             analyzer.poseListener = { bitmap, timestampNs -> submitPoseFrame(bitmap, timestampNs) }
         }
@@ -684,6 +688,7 @@ class CameraViewModel @Inject constructor(
             releaseHeightRatio = currentMechanics()?.releaseHeightRatio
         )
         runCatching { repository.save(session) }
+        announce(session)
     }
 
     private suspend fun persistPitch(metrics: LivePitchMetrics) {
@@ -709,6 +714,15 @@ class CameraViewModel @Inject constructor(
             releaseHeightRatio = currentMechanics()?.releaseHeightRatio
         )
         runCatching { repository.save(session) }
+        announce(session)
+    }
+
+    /** 出手回饋（語音 + 震動）；關閉時 [PitchFeedbackPlayer] 會自行略過 */
+    private fun announce(session: PitchSession) {
+        feedbackPlayer.feedback(
+            session.isStrike,
+            PitchAnnouncement.text(session.isStrike, session.fastestMph, session.calibrated)
+        )
     }
 
     /** 姿勢分數只在對應當前這一球時寫入（與出手偏移共用同一個時間窗） */
@@ -767,6 +781,21 @@ class CameraViewModel @Inject constructor(
                 colorModeEnabled = enabled,
                 statusMessage = if (enabled) "白色過濾模式：精度優先" else "運動檢測模式：幀率優先"
             )
+        }
+    }
+
+    /** 出手回饋開關（語音 + 震動）；預設關閉，避免被錄進片段或干擾旁人 */
+    fun toggleFeedback() {
+        val enabled = !_uiState.value.feedbackEnabled
+        feedbackPlayer.enabled = enabled
+        _uiState.update {
+            it.copy(
+                feedbackEnabled = enabled,
+                statusMessage = if (enabled) "出手回饋：語音＋震動" else "出手回饋已關閉"
+            )
+        }
+        if (enabled) {
+            feedbackPlayer.feedback(null, "出手回饋已開啟")
         }
     }
 

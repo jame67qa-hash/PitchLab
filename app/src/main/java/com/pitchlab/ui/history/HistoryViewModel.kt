@@ -4,6 +4,10 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.pitchlab.domain.model.PitchSession
 import com.pitchlab.domain.repository.PitchSessionRepository
+import com.pitchlab.domain.cv.BaselineDelta
+import com.pitchlab.domain.cv.MechanicsBaseline
+import com.pitchlab.domain.cv.MechanicsBaselineCalculator
+import com.pitchlab.domain.export.ExportOptions
 import com.pitchlab.domain.export.SessionExporter
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -31,7 +35,11 @@ data class HistoryUiState(
     /** 匯出中（按鈕顯示進度、避免重複觸發） */
     val exporting: Boolean = false,
     /** 匯出完成、等待 UI 交給系統分享的 zip 路徑；分享後清空 */
-    val shareZipPath: String? = null
+    val shareZipPath: String? = null,
+    /** 個人化機制基準（歷史中位數）；null = 完全沒有姿勢資料 */
+    val baseline: MechanicsBaseline? = null,
+    /** 最近一球與個人基準的差距（只含有值的指標） */
+    val baselineDeltas: List<BaselineDelta> = emptyList()
 )
 
 /** 一顆球的進壘點 + 判定 + 球速，供歷史頁散點圖繪製 */
@@ -74,9 +82,21 @@ class HistoryViewModel @Inject constructor(
                 )
             }
             .toList()
+        val baseline = MechanicsBaselineCalculator.from(sessions)
+        val latestScored = sessions.firstOrNull { it.poseScore != null }
+        val deltas = if (baseline.isUsable && latestScored != null) {
+            MechanicsBaselineCalculator.deviations(
+                MechanicsBaselineCalculator.snapshotOf(latestScored),
+                baseline
+            )
+        } else {
+            emptyList()
+        }
         _uiState.update {
             it.copy(
                 sessions = sessions,
+                baseline = baseline.takeIf { baseline.sampleCount > 0 },
+                baselineDeltas = deltas,
                 isLoading = false,
                 strikeCount = sessions.count { session -> session.isStrike == true },
                 ballCount = sessions.count { session -> session.isStrike == false },
@@ -113,7 +133,7 @@ class HistoryViewModel @Inject constructor(
      * 匯出分享包（CSV + 好球帶 PNG + 片段）。壓縮與複製都在 IO 執行緒，
      * 完成後只把路徑放進 state，由 UI 負責發 share intent——ViewModel 不碰 Context/Intent。
      */
-    fun exportAll() {
+    fun exportAll(options: ExportOptions = ExportOptions()) {
         val sessions = _uiState.value.sessions
         if (sessions.isEmpty()) {
             _uiState.update { it.copy(message = "沒有可匯出的紀錄") }
@@ -122,7 +142,7 @@ class HistoryViewModel @Inject constructor(
         if (_uiState.value.exporting) return
         _uiState.update { it.copy(exporting = true, message = "正在打包…") }
         viewModelScope.launch {
-            val result = withContext(Dispatchers.IO) { exporter.export(sessions) }
+            val result = withContext(Dispatchers.IO) { exporter.export(sessions, options) }
             _uiState.update {
                 it.copy(
                     exporting = false,

@@ -28,6 +28,8 @@ import androidx.compose.material.icons.filled.DeleteSweep
 import androidx.compose.material.icons.filled.FiberManualRecord
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.History
+import androidx.compose.material.icons.filled.VolumeOff
+import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material.icons.filled.Straighten
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.AssistChip
@@ -202,6 +204,22 @@ fun CameraScreen(
                         colors = AssistChipDefaults.assistChipColors(
                             labelColor = TextPrimary,
                             leadingIconContentColor = RadarAmber
+                        )
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    AssistChip(
+                        onClick = viewModel::toggleFeedback,
+                        label = { Text(if (state.feedbackEnabled) "回饋 ON" else "回饋 OFF", fontSize = 11.sp) },
+                        leadingIcon = {
+                            Icon(
+                                imageVector = if (state.feedbackEnabled) Icons.Filled.VolumeUp else Icons.Filled.VolumeOff,
+                                contentDescription = if (state.feedbackEnabled) "關閉出手回饋" else "開啟出手回饋",
+                                modifier = Modifier.size(15.dp)
+                            )
+                        },
+                        colors = AssistChipDefaults.assistChipColors(
+                            labelColor = if (state.feedbackEnabled) LaserCyan else TextSecondary,
+                            leadingIconContentColor = if (state.feedbackEnabled) LaserCyan else TextSecondary
                         )
                     )
                 }
