@@ -7,4 +7,7 @@
     <external-files-path
         name="pitch_videos"
         path="Movies/pitches/" />
+    <external-files-path
+        name="pitch_exports"
+        path="Documents/PitchLabExports/" />
 </paths>

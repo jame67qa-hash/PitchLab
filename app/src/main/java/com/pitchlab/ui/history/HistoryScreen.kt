@@ -28,7 +28,9 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
@@ -73,6 +75,16 @@ fun HistoryScreen(
     viewModel: HistoryViewModel = hiltViewModel()
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
+    val context = LocalContext.current
+
+    // 匯出完成 -> 交給系統分享（ViewModel 只給路徑，Intent 留在 UI 層）
+    LaunchedEffect(state.shareZipPath) {
+        val path = state.shareZipPath
+        if (!path.isNullOrEmpty()) {
+            shareZip(context, path)
+            viewModel.clearShareRequest()
+        }
+    }
 
     Column(
         modifier = Modifier
@@ -104,6 +116,13 @@ fun HistoryScreen(
                     text = "共 ${state.sessions.size} 球 · 好球 ${state.strikeCount} / 壞球 ${state.ballCount}",
                     color = TextSecondary,
                     fontSize = 11.sp
+                )
+            }
+            IconButton(onClick = viewModel::exportAll, enabled = !state.exporting) {
+                Icon(
+                    imageVector = Icons.Filled.Share,
+                    contentDescription = "匯出分享包",
+                    tint = if (state.exporting) TextSecondary else LaserCyan
                 )
             }
             TextButton(onClick = viewModel::clearAll) {
@@ -498,5 +517,33 @@ private fun openClip(context: Context, path: String) {
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         }
         context.startActivity(intent)
+    }
+}
+
+
+/**
+ * 分享匯出包：走 FileProvider（authority 與 Manifest 相同，路徑已在 file_paths.xml 宣告），
+ * 用 ACTION_SEND + 單一 zip，避免部分通訊軟體把多檔分享拆散。
+ */
+private fun shareZip(context: Context, path: String) {
+    val file = File(path)
+    if (!file.exists()) return
+    runCatching {
+        val uri = FileProvider.getUriForFile(
+            context,
+            context.packageName + ".fileprovider",
+            file
+        )
+        val intent = Intent(Intent.ACTION_SEND).apply {
+            type = "application/zip"
+            putExtra(Intent.EXTRA_STREAM, uri)
+            putExtra(Intent.EXTRA_SUBJECT, "PitchLab 投球紀錄匯出")
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+        context.startActivity(
+            Intent.createChooser(intent, "分享 PitchLab 匯出包").apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+        )
     }
 }

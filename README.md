@@ -1,4 +1,4 @@
-# PitchLab（Android）— Phase 1–4：高速相機、四點標定、自動剪輯與出手姿勢評分
+# PitchLab（Android）— Phase 1–5：高速相機、四點標定、自動剪輯、姿勢評分與匯出分享
 
 棒球投球追蹤與分析 App 的實作進度。Phase 1 把**高幀率取像 → 逐幀 CV → 物理量換算 → 資料落庫**
 這條主鏈打通並可驗證；Phase 2 在此之上補上「**場地四點標定 → 以雷達實測值校準球速 → 好球帶判定
@@ -187,6 +187,8 @@ app/src/main/java/com/pitchlab/
 │   ├── pose/PoseFrame.kt                # 評分用的關鍵點快照（純 Kotlin）
 │   ├── pose/PoseLandmarkerDetector.kt   # MediaPipe Pose（assets 模型、失敗降級）
 │   ├── media/PitchClipExtractor.kt      # MediaExtractor+MediaMuxer 免重編碼裁片段
+│   ├── export/SessionCsvFormatter.kt    # CSV（BOM + RFC4180 跳脫，純 Kotlin 可測）
+│   ├── export/SessionExporter.kt        # CSV + 好球帶 PNG + 媒體 → zip
 │   └── repository/                # PitchSessionRepository / CalibrationRepository
 ├── data/
 │   ├── local/                     # Room Entity / Dao / Database（v4 + 顯式 migration）
@@ -380,6 +382,15 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 - [ ] 投手整個人出框或被遮擋時，該球不寫入姿勢欄位（顯示不出現，而不是 0 分）
 - [ ] 從 Phase 3 升級安裝後舊紀錄與片段仍在（Room v3→v4 遷移成功）
 
+### 手機端驗收清單（Phase 5）
+
+- [ ] 歷史頁右上「分享」圖示可按下，幾秒後跳出系統分享面板（zip 檔名 `PitchLab_export_YYYYMMDD_HHMMSS.zip`）
+- [ ] 解壓後有 `pitchlab_sessions.csv`、`strike_zone.png`、`media/`、`README.txt`
+- [ ] CSV 用 Excel 直接開：**中文不亂碼**、欄位沒有錯位、`strike` 欄是 YES/NO
+- [ ] `strike_zone.png` 的落點數量與 CSV 中有進壘點的球數一致
+- [ ] 沒有剪輯片段的球，`media/` 內帶的是原始 mp4；有片段的球帶 `_pitch.mp4`
+- [ ] 紀錄很多時若媒體超過 300 MB，README.txt 會寫出未複製的球數（不是默默漏掉）
+
 ---
 
 ## 7. 已完成的機器驗證
@@ -387,13 +398,13 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 | 項目 | 結果 |
 |---|---|
 | `gradle assembleDebug testDebugUnitTest` | BUILD SUCCESSFUL（AGP 8.5.2 / Gradle 8.9 / JDK 17） |
-| 單元測試 | **39 tests, 0 failures**（Phase 1 的 11 + Phase 2 的 17 + Phase 3 的 5 + Phase 4 的 6） |
-| APK | 144 MB（含 5.6 MB 姿態模型），`com.pitchlab` **v1.0.0-phase4**，minSdk 24 / target 34 |
+| 單元測試 | **43 tests, 0 failures**（Phase 1 的 11 + Phase 2 的 17 + Phase 3 的 5 + Phase 4 的 6 + Phase 5 的 4） |
+| APK | 144 MB（含 5.6 MB 姿態模型），`com.pitchlab` **v1.0.0-phase5**，minSdk 24 / target 34 |
 | 簽章 | APK Signature Scheme v2：Verifies |
 | Room 遷移 | `1.json`～`4.json` 與 `MIGRATION_1_2`、`2_3`、`3_4` 逐欄位一致 |
 | 原生庫 | `libopencv_java4.so`（3 ABI）、`libmediapipe_tasks_vision_jni.so`（arm64/armv7） |
 | 資產 | `assets/pose_landmarker_lite.task`（5,777,746 bytes，已確認打包進 APK） |
-| FileProvider | `res/xml/file_paths.xml` 只暴露 `Movies/pitches/`（非全域 external-path） |
+| FileProvider | `file_paths.xml` 只暴露 `Movies/pitches/` 與 `Documents/PitchLabExports/`（非全域 external-path） |
 | 權限 | CAMERA / RECORD_AUDIO / WRITE_EXTERNAL_STORAGE(≤28) / READ_MEDIA_VIDEO |
 
 **未驗證（缺實機 / 無 KVM 模擬器）**：相機實際幀率、真實球速精度、錄影與剪輯檔可播放性、
@@ -545,7 +556,57 @@ Phase 3 已經在出手瞬間拿到完整骨架，Phase 4 直接把同一幀的�
 
 ---
 
-## 10. 下一階段（Phase 5）
+## 10. Phase 5 追加：匯出分享包
+
+### 10.1 一鍵匯出什麼
+
+歷史頁右上「分享」圖示 → 產生一個 zip（`Documents/PitchLabExports/PitchLab_export_YYYYMMDD_HHMMSS.zip`）：
+
+```
+pitchlab_sessions.csv     # 全部紀錄，UTF-8 含 BOM，Excel 可直接開
+strike_zone.png           # 好球帶進壘點圖（最近 40 球）
+media/                    # 出手片段（優先）或原始影片，依球數編號命名
+README.txt                # 好壞球統計、最快/平均球速、姿勢均分、未複製媒體數、量測限制
+```
+
+分享一律走單一 zip：LINE、Messenger 這類 App 對「多檔 ACTION_SEND」的處理不一致，
+常常只傳出第一個檔或直接失敗；單一 zip 在 Android 與桌面端都最穩定。
+
+### 10.2 CSV 的兩個坑
+
+1. **BOM**：Excel 開沒有 BOM 的 UTF-8 CSV 會把中文變亂碼，所以檔案開頭固定寫 `\uFEFF`；
+2. **RFC 4180 跳脫**：檔名含逗號、引號或換行時，必須用雙引號包起來、內部引號加倍，
+   否則整份表格會錯位。`SessionCsvFormatter` 是純 Kotlin，這兩個行為都有單元測試。
+
+欄名刻意用英文 `snake_case`（`fastest_mph`、`plate_x_in`…），因為 CSV 的主要用途是丟進
+Excel／Python 分析，英文欄名不會因全形字元或編碼在不同工具間出問題；中文說明放在 README.txt。
+
+### 10.3 為什麼媒體要設 300 MB 上限
+
+10 秒 1080p 錄影大約 20–60 MB，50 球就是 GB 級，這種大小的分享包在通訊軟體上幾乎一定失敗。
+因此複製策略是：
+
+1. 有 `_pitch.mp4` 片段就只帶片段（4 秒，通常 5–20 MB）；
+2. 沒有片段才帶原始影片；
+3. 總量超過 `MEDIA_BUDGET_BYTES = 300 MB` 的球會被跳過，並在 README.txt **明確寫出跳過幾球**——
+   寧可少帶，也不要做出一個傳不出去的檔案，更不能默默漏掉讓使用者以為匯出完整。
+
+### 10.4 PNG 為什麼用原生 Canvas 而不是 Compose
+
+匯出在 IO 執行緒執行，Compose 的 `Canvas` 只能在主執行緒的組合環境裡用；
+`SessionExporter.writeStrikeZonePng` 直接用 `Bitmap` + `Canvas` + `Paint` 畫好球帶、九宮格、
+本壘板與散點，不需要引入圖表函式庫，也不會把 UI 相依帶進 domain 層。
+
+### 10.5 Phase 5 已知限制
+
+- 只匯出「目前 Room 裡的紀錄」；若使用者已在歷史頁刪除，對應影片不會出現在匯出包。
+- 300 MB 上限是寫死的常數，尚未做成設定項；大量紀錄時需要分次匯出。
+- `strike_zone.png` 只畫最近 40 球，避免點重疊到看不見；CSV 仍是全部紀錄。
+- 部分郵件 App 會擋 `.zip` 附件，這是收件端政策，不是匯出失敗。
+
+---
+
+## 11. 下一階段（Phase 6）
 
 - 出手影格的「靜態姿勢評分」：用 MediaPipe 33 點算肩髖分離、前導手肘角度、放球高度，
   給出可比較的姿勢分數，而不是只有球速。
@@ -555,10 +616,10 @@ Phase 3 已經在出手瞬間拿到完整骨架，Phase 4 直接把同一幀的�
 
 ---
 
-## 11. 授權與版本
+## 12. 授權與版本
 
 - 授權：MIT（見 `LICENSE`，Copyright 2026 PitchLab contributors）。
-- 版本：`1.0.0-phase4`（versionCode 4）。
+- 版本：`1.0.0-phase5`（versionCode 5）。
 - 第三方：OpenCV 4.10.0（Apache-2.0）、CameraX 1.4.0（Apache-2.0）、
   MediaPipe Tasks 0.10.14（Apache-2.0）、MediaPipe Pose Landmarker lite 模型（Apache-2.0）。
 - 倉庫不含任何金鑰／keystore；debug 簽章由本機 `${HOME}/.android/debug.keystore` 產生。

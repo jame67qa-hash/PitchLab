@@ -4,12 +4,15 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.pitchlab.domain.model.PitchSession
 import com.pitchlab.domain.repository.PitchSessionRepository
+import com.pitchlab.domain.export.SessionExporter
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import javax.inject.Inject
 
 data class HistoryUiState(
@@ -24,7 +27,11 @@ data class HistoryUiState(
     val speedTrend: List<Double> = emptyList(),
     /** 最近 20 球的進壘點（給好球帶散點圖用） */
     val plateMarks: List<PlateMark> = emptyList(),
-    val message: String? = null
+    val message: String? = null,
+    /** 匯出中（按鈕顯示進度、避免重複觸發） */
+    val exporting: Boolean = false,
+    /** 匯出完成、等待 UI 交給系統分享的 zip 路徑；分享後清空 */
+    val shareZipPath: String? = null
 )
 
 /** 一顆球的進壘點 + 判定 + 球速，供歷史頁散點圖繪製 */
@@ -37,7 +44,8 @@ data class PlateMark(
 
 @HiltViewModel
 class HistoryViewModel @Inject constructor(
-    private val repository: PitchSessionRepository
+    private val repository: PitchSessionRepository,
+    private val exporter: SessionExporter
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(HistoryUiState())
@@ -99,5 +107,33 @@ class HistoryViewModel @Inject constructor(
 
     fun dismissMessage() {
         _uiState.update { it.copy(message = null) }
+    }
+
+    /**
+     * 匯出分享包（CSV + 好球帶 PNG + 片段）。壓縮與複製都在 IO 執行緒，
+     * 完成後只把路徑放進 state，由 UI 負責發 share intent——ViewModel 不碰 Context/Intent。
+     */
+    fun exportAll() {
+        val sessions = _uiState.value.sessions
+        if (sessions.isEmpty()) {
+            _uiState.update { it.copy(message = "沒有可匯出的紀錄") }
+            return
+        }
+        if (_uiState.value.exporting) return
+        _uiState.update { it.copy(exporting = true, message = "正在打包…") }
+        viewModelScope.launch {
+            val result = withContext(Dispatchers.IO) { exporter.export(sessions) }
+            _uiState.update {
+                it.copy(
+                    exporting = false,
+                    shareZipPath = result.zipFile?.absolutePath,
+                    message = result.message
+                )
+            }
+        }
+    }
+
+    fun clearShareRequest() {
+        _uiState.update { it.copy(shareZipPath = null) }
     }
 }
