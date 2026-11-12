@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.Intent
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -44,6 +45,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
@@ -59,6 +61,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.pitchlab.domain.cv.BaselineDelta
 import com.pitchlab.domain.cv.MechanicsBaseline
 import com.pitchlab.domain.cv.MechanicsBaselineCalculator
+import com.pitchlab.domain.cv.ControlAnalyzer
+import com.pitchlab.domain.cv.ControlReport
 import com.pitchlab.domain.export.ExportOptions
 import com.pitchlab.domain.export.ExportSelector
 import com.pitchlab.domain.model.PitchSession
@@ -192,6 +196,9 @@ fun HistoryScreen(
                     .padding(horizontal = 12.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
+                if (state.controlReport.hasData) {
+                    item(key = "control-card") { ControlCard(report = state.controlReport) }
+                }
                 items(state.sessions, key = { it.id }) { session ->
                     SessionRow(session = session, onDelete = { viewModel.delete(session.id) })
                 }
@@ -545,6 +552,99 @@ private fun BaselineCell(label: String, value: Double?, unit: String, modifier: 
             fontWeight = FontWeight.SemiBold
         )
         Text(text = unit.ifEmpty { "RATIO" }, color = TextSecondary.copy(alpha = 0.55f), fontSize = 7.sp)
+    }
+}
+
+
+/**
+ * 控球熱區：九宮格命中次數 + 平均落點 + 散佈半徑。
+ *
+ * 只把「好球帶內」的球填進九宮格，框外的球另外計數——若把框外硬塞進邊角，
+ * 熱區會看起來比實際更準，失去診斷價值。散佈半徑是各球到平均落點的 RMS 距離，
+ * 與裁判判決無關，能反映「投得準不準」。
+ */
+@Composable
+private fun ControlCard(report: ControlReport) {
+    val maxCount = report.cells.maxOfOrNull { it.count } ?: 0
+    val centroidCell = report.centroidXInches?.let { x ->
+        report.centroidYInches?.let { y -> ControlAnalyzer.cellIndex(x, y) }
+    }
+    Card(
+        colors = CardDefaults.cardColors(containerColor = PitchSurface),
+        shape = RoundedCornerShape(12.dp),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp)) {
+            Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Text("控球熱區", color = TextPrimary, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                Spacer(Modifier.weight(1f))
+                Text(
+                    text = "${report.sampleCount} 球 · 散佈 " +
+                        String.format(Locale.US, "%.1f", report.spreadRadiusInches ?: 0.0) + " in",
+                    color = TextSecondary,
+                    fontSize = 8.sp
+                )
+            }
+            Spacer(Modifier.height(6.dp))
+            Row {
+                Column {
+                    for (row in 0 until ControlAnalyzer.GRID) {
+                        Row {
+                            for (column in 0 until ControlAnalyzer.GRID) {
+                                val index = row * ControlAnalyzer.GRID + column
+                                HeatCell(
+                                    count = report.cells[index].count,
+                                    maxCount = maxCount,
+                                    isCentroid = centroidCell == index
+                                )
+                            }
+                        }
+                    }
+                }
+                Spacer(Modifier.width(12.dp))
+                Column(modifier = Modifier.align(Alignment.CenterVertically)) {
+                    Text(
+                        text = "控球 ${report.score ?: "—"} ${report.grade}",
+                        color = if ((report.score ?: 0) >= 70) StrikeZoneGreen else RadarAmber,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    Text(
+                        text = "平均落點 ${ControlAnalyzer.describeOffset(report.centroidXInches, report.centroidYInches)}",
+                        color = TextSecondary,
+                        fontSize = 9.sp
+                    )
+                    Text(
+                        text = "框外 ${report.outsideZoneCount} 球 · 散佈越小越準",
+                        color = TextSecondary,
+                        fontSize = 9.sp
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun HeatCell(count: Int, maxCount: Int, isCentroid: Boolean) {
+    val intensity = if (maxCount == 0) 0f else count.toFloat() / maxCount
+    Box(
+        modifier = Modifier
+            .size(30.dp)
+            .padding(1.dp)
+            .clip(RoundedCornerShape(5.dp))
+            .background(LaserCyan.copy(alpha = 0.08f + 0.42f * intensity))
+            .then(
+                if (isCentroid) Modifier.border(1.dp, RadarAmber, RoundedCornerShape(5.dp))
+                else Modifier
+            ),
+        contentAlignment = Alignment.Center
+    ) {
+        Text(
+            text = if (count == 0) "·" else count.toString(),
+            color = if (count == 0) TextSecondary.copy(alpha = 0.4f) else TextPrimary,
+            fontSize = 9.sp
+        )
     }
 }
 

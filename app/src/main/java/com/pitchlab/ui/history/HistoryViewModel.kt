@@ -5,6 +5,9 @@ import androidx.lifecycle.viewModelScope
 import com.pitchlab.domain.model.PitchSession
 import com.pitchlab.domain.repository.PitchSessionRepository
 import com.pitchlab.domain.cv.BaselineDelta
+import com.pitchlab.domain.cv.ControlAnalyzer
+import com.pitchlab.domain.cv.ControlReport
+import com.pitchlab.domain.cv.PlateSample
 import com.pitchlab.domain.cv.MechanicsBaseline
 import com.pitchlab.domain.cv.MechanicsBaselineCalculator
 import com.pitchlab.domain.export.ExportOptions
@@ -39,7 +42,9 @@ data class HistoryUiState(
     /** 個人化機制基準（歷史中位數）；null = 完全沒有姿勢資料 */
     val baseline: MechanicsBaseline? = null,
     /** 最近一球與個人基準的差距（只含有值的指標） */
-    val baselineDeltas: List<BaselineDelta> = emptyList()
+    val baselineDeltas: List<BaselineDelta> = emptyList(),
+    /** 控球熱區與穩定性（最近 40 球有落點的樣本） */
+    val controlReport: ControlReport = ControlReport.EMPTY
 )
 
 /** 一顆球的進壘點 + 判定 + 球速，供歷史頁散點圖繪製 */
@@ -82,6 +87,14 @@ class HistoryViewModel @Inject constructor(
                 )
             }
             .toList()
+        val controlSamples = sessions
+            .asSequence()
+            .filter { it.plateXInches != null && it.plateYInches != null }
+            .take(40)
+            .map { PlateSample(it.plateXInches!!, it.plateYInches!!, it.isStrike) }
+            .toList()
+        val controlReport = ControlAnalyzer.analyze(controlSamples)
+
         val baseline = MechanicsBaselineCalculator.from(sessions)
         val latestScored = sessions.firstOrNull { it.poseScore != null }
         val deltas = if (baseline.isUsable && latestScored != null) {
@@ -97,6 +110,7 @@ class HistoryViewModel @Inject constructor(
                 sessions = sessions,
                 baseline = baseline.takeIf { baseline.sampleCount > 0 },
                 baselineDeltas = deltas,
+                controlReport = controlReport,
                 isLoading = false,
                 strikeCount = sessions.count { session -> session.isStrike == true },
                 ballCount = sessions.count { session -> session.isStrike == false },
