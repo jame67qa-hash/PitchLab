@@ -51,6 +51,7 @@ import com.pitchlab.domain.feedback.PitchAnnouncement
 import com.pitchlab.domain.feedback.PitchFeedbackPlayer
 import com.pitchlab.domain.media.PitchClipExtractor
 import com.pitchlab.domain.model.PitchSession
+import com.pitchlab.domain.model.PitchType
 import com.pitchlab.domain.pose.PoseFrame
 import com.pitchlab.domain.pose.PoseIndices
 import com.pitchlab.domain.pose.PoseLandmarkerDetector
@@ -688,7 +689,11 @@ class CameraViewModel @Inject constructor(
             trunkTiltDeg = currentMechanics()?.trunkTiltDeg,
             releaseHeightRatio = currentMechanics()?.releaseHeightRatio,
             releaseHeightFt = metrics.releaseHeightFeet,
-            releaseDistanceFt = metrics.releaseDistanceFeet
+            releaseDistanceFt = metrics.releaseDistanceFeet,
+            cameraHeightIn = activeProfile.cameraHeightIn.takeIf { activeProfile.isValid },
+            cameraPitchDeg = activeProfile.cameraPitchDeg.takeIf { activeProfile.isValid },
+            speedScale = activeProfile.speedScale.takeIf { activeProfile.isValid },
+            pitchType = _uiState.value.selectedPitchType
         )
         runCatching { repository.save(session) }
         announce(session)
@@ -716,7 +721,11 @@ class CameraViewModel @Inject constructor(
             trunkTiltDeg = currentMechanics()?.trunkTiltDeg,
             releaseHeightRatio = currentMechanics()?.releaseHeightRatio,
             releaseHeightFt = metrics.releaseHeightFeet,
-            releaseDistanceFt = metrics.releaseDistanceFeet
+            releaseDistanceFt = metrics.releaseDistanceFeet,
+            cameraHeightIn = activeProfile.cameraHeightIn.takeIf { activeProfile.isValid },
+            cameraPitchDeg = activeProfile.cameraPitchDeg.takeIf { activeProfile.isValid },
+            speedScale = activeProfile.speedScale.takeIf { activeProfile.isValid },
+            pitchType = _uiState.value.selectedPitchType
         )
         runCatching { repository.save(session) }
         announce(session)
@@ -786,6 +795,16 @@ class CameraViewModel @Inject constructor(
                 colorModeEnabled = enabled,
                 statusMessage = if (enabled) "白色過濾模式：精度優先" else "運動檢測模式：幀率優先"
             )
+        }
+    }
+
+    /**
+     * Phase 12：選定下一球的球種。再點同一個球種＝取消標記，
+     * 這樣使用者不必特地去找「清除」按鈕。
+     */
+    fun selectPitchType(type: PitchType?) {
+        _uiState.update { state ->
+            state.copy(selectedPitchType = if (state.selectedPitchType == type) null else type)
         }
     }
 

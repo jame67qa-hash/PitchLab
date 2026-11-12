@@ -1,0 +1,308 @@
+{
+  "formatVersion": 1,
+  "database": {
+    "version": 6,
+    "identityHash": "9b23a6dba7c9cfe093192ba4d8a04d24",
+    "entities": [
+      {
+        "tableName": "pitch_sessions",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `started_at` INTEGER NOT NULL, `duration_ms` INTEGER NOT NULL, `fastest_mph` REAL, `average_mph` REAL, `horizontal_break_in` REAL, `vertical_break_in` REAL, `plate_x_in` REAL, `plate_y_in` REAL, `is_strike` INTEGER, `calibrated` INTEGER NOT NULL DEFAULT 0, `video_path` TEXT, `detected_fps` INTEGER NOT NULL, `tracked_frames` INTEGER NOT NULL, `created_at` INTEGER NOT NULL, `clip_path` TEXT, `release_offset_ms` INTEGER, `pose_score` INTEGER, `separation_deg` REAL, `elbow_deg` REAL, `trunk_tilt_deg` REAL, `release_height_ratio` REAL, `release_height_ft` REAL, `release_distance_ft` REAL, `camera_height_in` REAL, `camera_pitch_deg` REAL, `speed_scale` REAL)",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "startedAtMillis",
+            "columnName": "started_at",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "durationMillis",
+            "columnName": "duration_ms",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "fastestMph",
+            "columnName": "fastest_mph",
+            "affinity": "REAL",
+            "notNull": false
+          },
+          {
+            "fieldPath": "averageMph",
+            "columnName": "average_mph",
+            "affinity": "REAL",
+            "notNull": false
+          },
+          {
+            "fieldPath": "horizontalBreakInches",
+            "columnName": "horizontal_break_in",
+            "affinity": "REAL",
+            "notNull": false
+          },
+          {
+            "fieldPath": "verticalBreakInches",
+            "columnName": "vertical_break_in",
+            "affinity": "REAL",
+            "notNull": false
+          },
+          {
+            "fieldPath": "plateXInches",
+            "columnName": "plate_x_in",
+            "affinity": "REAL",
+            "notNull": false
+          },
+          {
+            "fieldPath": "plateYInches",
+            "columnName": "plate_y_in",
+            "affinity": "REAL",
+            "notNull": false
+          },
+          {
+            "fieldPath": "isStrike",
+            "columnName": "is_strike",
+            "affinity": "INTEGER",
+            "notNull": false
+          },
+          {
+            "fieldPath": "calibrated",
+            "columnName": "calibrated",
+            "affinity": "INTEGER",
+            "notNull": true,
+            "defaultValue": "0"
+          },
+          {
+            "fieldPath": "videoPath",
+            "columnName": "video_path",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "detectedFps",
+            "columnName": "detected_fps",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "trackedFrames",
+            "columnName": "tracked_frames",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "createdAtMillis",
+            "columnName": "created_at",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "clipPath",
+            "columnName": "clip_path",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "releaseOffsetMs",
+            "columnName": "release_offset_ms",
+            "affinity": "INTEGER",
+            "notNull": false
+          },
+          {
+            "fieldPath": "poseScore",
+            "columnName": "pose_score",
+            "affinity": "INTEGER",
+            "notNull": false
+          },
+          {
+            "fieldPath": "separationDeg",
+            "columnName": "separation_deg",
+            "affinity": "REAL",
+            "notNull": false
+          },
+          {
+            "fieldPath": "elbowDeg",
+            "columnName": "elbow_deg",
+            "affinity": "REAL",
+            "notNull": false
+          },
+          {
+            "fieldPath": "trunkTiltDeg",
+            "columnName": "trunk_tilt_deg",
+            "affinity": "REAL",
+            "notNull": false
+          },
+          {
+            "fieldPath": "releaseHeightRatio",
+            "columnName": "release_height_ratio",
+            "affinity": "REAL",
+            "notNull": false
+          },
+          {
+            "fieldPath": "releaseHeightFt",
+            "columnName": "release_height_ft",
+            "affinity": "REAL",
+            "notNull": false
+          },
+          {
+            "fieldPath": "releaseDistanceFt",
+            "columnName": "release_distance_ft",
+            "affinity": "REAL",
+            "notNull": false
+          },
+          {
+            "fieldPath": "cameraHeightIn",
+            "columnName": "camera_height_in",
+            "affinity": "REAL",
+            "notNull": false
+          },
+          {
+            "fieldPath": "cameraPitchDeg",
+            "columnName": "camera_pitch_deg",
+            "affinity": "REAL",
+            "notNull": false
+          },
+          {
+            "fieldPath": "speedScale",
+            "columnName": "speed_scale",
+            "affinity": "REAL",
+            "notNull": false
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": true,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [],
+        "foreignKeys": []
+      },
+      {
+        "tableName": "calibrations",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `p0x` REAL NOT NULL, `p0y` REAL NOT NULL, `p1x` REAL NOT NULL, `p1y` REAL NOT NULL, `p2x` REAL NOT NULL, `p2y` REAL NOT NULL, `p3x` REAL NOT NULL, `p3y` REAL NOT NULL, `camera_height_in` REAL NOT NULL, `camera_pitch_deg` REAL NOT NULL DEFAULT 0, `zone_top_in` REAL NOT NULL, `zone_bottom_in` REAL NOT NULL, `speed_scale` REAL NOT NULL, `radar_mph` REAL, `estimated_mph` REAL, `created_at` INTEGER NOT NULL)",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "p0x",
+            "columnName": "p0x",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "p0y",
+            "columnName": "p0y",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "p1x",
+            "columnName": "p1x",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "p1y",
+            "columnName": "p1y",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "p2x",
+            "columnName": "p2x",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "p2y",
+            "columnName": "p2y",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "p3x",
+            "columnName": "p3x",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "p3y",
+            "columnName": "p3y",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "cameraHeightIn",
+            "columnName": "camera_height_in",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "cameraPitchDeg",
+            "columnName": "camera_pitch_deg",
+            "affinity": "REAL",
+            "notNull": true,
+            "defaultValue": "0"
+          },
+          {
+            "fieldPath": "strikeZoneTopIn",
+            "columnName": "zone_top_in",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "strikeZoneBottomIn",
+            "columnName": "zone_bottom_in",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "speedScale",
+            "columnName": "speed_scale",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "radarReferenceMph",
+            "columnName": "radar_mph",
+            "affinity": "REAL",
+            "notNull": false
+          },
+          {
+            "fieldPath": "estimatedAtCalibrationMph",
+            "columnName": "estimated_mph",
+            "affinity": "REAL",
+            "notNull": false
+          },
+          {
+            "fieldPath": "createdAtMillis",
+            "columnName": "created_at",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": true,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [],
+        "foreignKeys": []
+      }
+    ],
+    "views": [],
+    "setupQueries": [
+      "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '9b23a6dba7c9cfe093192ba4d8a04d24')"
+    ]
+  }
+}

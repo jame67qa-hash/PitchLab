@@ -102,6 +102,8 @@ data class CameraUiState(
     val ballCount: Int = 0,
     val strikeZone: NormalizedRect = NormalizedRect(0.30f, 0.38f, 0.70f, 0.80f),
     val statusMessage: String = "等待相機初始化",
+    /** Phase 12：下一球要標記的球種；null = 不標記 */
+    val selectedPitchType: PitchType? = null,
     val errorMessage: String? = null,
     val lastRecordingPath: String? = null,
     /** 速度是否已用雷達校準（UI 顯示 CAL / EST） */

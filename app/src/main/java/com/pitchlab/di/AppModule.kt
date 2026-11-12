@@ -96,11 +96,27 @@ object AppModule {
         }
     }
 
+    /** v5 -> v6：每球的機位指紋（Phase 11）；舊紀錄為 null，代表「不知道當時的機位」。 */
+    private val MIGRATION_5_6 = object : Migration(5, 6) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("ALTER TABLE `pitch_sessions` ADD COLUMN `camera_height_in` REAL")
+            db.execSQL("ALTER TABLE `pitch_sessions` ADD COLUMN `camera_pitch_deg` REAL")
+            db.execSQL("ALTER TABLE `pitch_sessions` ADD COLUMN `speed_scale` REAL")
+        }
+    }
+
+    /** v6 -> v7：球種標記（Phase 12）；null = 未標記，不影響舊資料。 */
+    private val MIGRATION_6_7 = object : Migration(6, 7) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("ALTER TABLE `pitch_sessions` ADD COLUMN `pitch_type` TEXT")
+        }
+    }
+
     @Provides
     @Singleton
     fun provideDatabase(@ApplicationContext context: Context): PitchLabDatabase =
         Room.databaseBuilder(context, PitchLabDatabase::class.java, "pitchlab.db")
-            .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
+            .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7)
             .build()
 
     @Provides

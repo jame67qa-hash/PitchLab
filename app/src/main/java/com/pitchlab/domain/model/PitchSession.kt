@@ -34,5 +34,11 @@ data class PitchSession(
     val releaseHeightRatio: Double? = null,
     /** Phase 10 3D 重建：放球高度／放球距離（英尺） */
     val releaseHeightFt: Double? = null,
-    val releaseDistanceFt: Double? = null
+    val releaseDistanceFt: Double? = null,
+    /** Phase 11 機位指紋：拍攝當下的相機高度／俯仰角／速度刻度 */
+    val cameraHeightIn: Double? = null,
+    val cameraPitchDeg: Double? = null,
+    val speedScale: Double? = null,
+    /** Phase 12 球種；null = 未標記 */
+    val pitchType: PitchType? = null
 )

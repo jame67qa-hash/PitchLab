@@ -21,7 +21,11 @@ data class MechanicsBaseline(
     val elbowDeg: Double? = null,
     val trunkTiltDeg: Double? = null,
     val releaseHeightRatio: Double? = null,
-    val averageScore: Double? = null
+    val averageScore: Double? = null,
+    /** 這個基準是針對哪個機位算的；null = 尚未標定，無法綁定 */
+    val fingerprint: CameraFingerprint? = null,
+    /** 因為機位不同而被排除的球數（UI 要說明「略過幾球」） */
+    val ignoredSampleCount: Int = 0
 ) {
     val isUsable: Boolean get() = sampleCount >= MechanicsBaselineCalculator.MIN_SAMPLES
 }
@@ -71,16 +75,27 @@ object MechanicsBaselineCalculator {
     private const val TRUNK_TOLERANCE = 5.0
     private const val HEIGHT_TOLERANCE = 0.05
 
-    fun from(sessions: List<PitchSession>): MechanicsBaseline {
+    fun from(sessions: List<PitchSession>, fingerprint: CameraFingerprint? = null): MechanicsBaseline {
         // 只取有姿勢評分的球：沒偵測到人的球不該進入基準
-        val scored = sessions.filter { it.poseScore != null }
+        val withPose = sessions.filter { it.poseScore != null }
+        // 有機位指紋時，只留同一機位的球；不同機位的球混進來等於拿兩把尺平均
+        val scored = if (fingerprint == null) {
+            withPose
+        } else {
+            withPose.filter { session ->
+                CameraFingerprint.of(session)?.matches(fingerprint) == true
+            }
+        }
+        val ignored = withPose.size - scored.size
         return MechanicsBaseline(
             sampleCount = scored.size,
             separationDeg = median(scored.mapNotNull { it.separationDeg }),
             elbowDeg = median(scored.mapNotNull { it.elbowDeg }),
             trunkTiltDeg = median(scored.mapNotNull { it.trunkTiltDeg }),
             releaseHeightRatio = median(scored.mapNotNull { it.releaseHeightRatio }),
-            averageScore = if (scored.isEmpty()) null else scored.mapNotNull { it.poseScore }.average()
+            averageScore = if (scored.isEmpty()) null else scored.mapNotNull { it.poseScore }.average(),
+            fingerprint = fingerprint,
+            ignoredSampleCount = ignored
         )
     }
 

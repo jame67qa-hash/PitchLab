@@ -1,4 +1,4 @@
-# PitchLab（Android）— Phase 1–10：高速相機、四點標定、自動剪輯、姿勢評分、匯出、個人基準、出手回饋、控球熱區與 3D 放球重建
+# PitchLab（Android）— Phase 1–12：高速相機、四點標定、自動剪輯、姿勢評分、匯出、個人基準、出手回饋、控球熱區、3D 放球重建、機位指紋與球種分析
 
 棒球投球追蹤與分析 App 的實作進度。Phase 1 把**高幀率取像 → 逐幀 CV → 物理量換算 → 資料落庫**
 這條主鏈打通並可驗證；Phase 2 在此之上補上「**場地四點標定 → 以雷達實測值校準球速 → 好球帶判定
@@ -712,19 +712,52 @@ Phase 1–9 的落點高度用「相機高度 − 影像縱向偏移」，前提
   沒有相機滾轉（roll）修正，腳架左右歪會讓水平位移有偏差；出手點取「最早被追蹤到的幀」，
   若前幾幀漏檢，放球高度會偏晚、偏低。
 
-## 16. 下一階段（Phase 11）
+## 16. Phase 11 追加：機位指紋（基準只在同一台腳架上累積）
 
-- 基準的機位綁定：在基準資料中加入機位指紋（高度／俯仰／距離），換機位時自動提示重新累積。
-- 球種標記：讓使用者為每球標記速球／曲球，熱區與位移才能分球種比較。
-- 匯出加值：把控球熱區與 3D 放球分佈畫進 `strike_zone.png`。
+Phase 6 的個人基準用歷史中位數建立，但沒有記錄「這些球是用什麼機位拍的」。
+把腳架從 44 in 升到 60 in、或把俯仰角從 0° 調到 +8°，投影比例就變了；
+同一個 28° 肩髖分離在新機位下代表完全不同的影像，混在一起取中位數沒有意義。
+
+- `CameraFingerprint(heightIn, pitchDeg, speedScale)`：容許 2 in / 1.5° / 10%，
+  超過就視為不同機位（`matches()` 內含 1e-9 餘裕，避免「差 0.10」被浮點誤差判成不同）。
+  `label()` 產生「機位 44 in · +3.0°」。
+- `MechanicsBaselineCalculator.from(sessions, fingerprint)`：只取與目前機位相符的球，
+  其他機位的球數放進 `ignoredSampleCount`，不參與中位數。
+- Room v6：`pitch_sessions.camera_height_in` / `camera_pitch_deg` / `speed_scale`（皆 nullable，
+  舊球為 null = 不知道機位，不會被算進任何機位）。`MIGRATION_5_6` 只加欄位。
+- `CameraViewModel` 兩條存檔路徑（自動判定＋手動結束）都寫入當下 `activeProfile` 的指紋。
+- `HistoryViewModel` 以 `combine(sessions, observeActive())` 取得「目前生效的標定」產生指紋；
+  重新標定後舊機位的球自動被排除，不需要清資料。
+- `BaselineCard`：顯示指紋與「另有 N 球屬其他機位，已略過」；
+  該機位不足 5 球時提示「此機位只有 X 球，再投 N 球才建立基準」。
+- CSV 追加 `camera_height_in`、`camera_pitch_deg`、`speed_scale`，匯出後仍能重建基準。
+
+## 17. Phase 12 追加：球種標記與分球種分析
+
+- `PitchType`：速球／曲球／滑球／變速球／其他，`code` 寫入 DB 與 CSV，
+  `fromCode` 對未知值回傳 null（不猜）。
+- 相機頁在控制列上方加一列橫向捲動的球種 chip；點第二次同一個球種＝取消標記。
+  選定後只影響「下一球」，不會改到已存的紀錄。
+- Room v7：`pitch_sessions.pitch_type`（TEXT nullable）。`MIGRATION_6_7` 只加欄位。
+- 歷史頁新增球種篩選 chip（只列出實際出現過的球種）：熱區、散佈、速度趨勢、列表
+  都跟著切換；**個人基準仍用全部同機位的球**，因為球種不該改變動作基準。
+- 列表每球顯示球種徽章；CSV 追加 `pitch_type`（`fastball` / `curveball` / `slider` / `changeup` / `other`）。
+- 限制：球種是人工標記，不是自動辨識；未標記的球在「全部」裡看得到，但不會出現在任何
+  球種篩選中。混淆矩陣式的球種辨識需要更多標註資料，不在本版範圍。
+
+## 18. 下一階段（Phase 13 候選）
+
+- 匯出加值：把控球熱區與 3D 放球分佈畫進 `strike_zone.png`（目前 PNG 只有好球帶與單球落點）。
+- 分球種基準：等某球種樣本夠多（例如 30 球）後，另外建立該球種的動作基準。
+- 自動球種建議：用速度與位移特徵（mph、橫移、縱移）做規則式初判，再由使用者確認。
 
 ---
 
-## 17. 授權與版本
+## 19. 授權與版本
 
 - 授權：MIT（見 `LICENSE`，Copyright 2026 PitchLab contributors）。
-- 版本：`1.0.0-phase10`（versionCode 10）。
-- 資料庫：Room v5（`MIGRATION_4_5` 已隨版本提供，舊資料自動保留）。
+- 版本：`1.0.0-phase12`（versionCode 12）。
+- 資料庫：Room v7（`MIGRATION_5_6`、`MIGRATION_6_7` 已隨版本提供，舊資料自動保留）。
 - 第三方：OpenCV 4.10.0（Apache-2.0）、CameraX 1.4.0（Apache-2.0）、
   MediaPipe Tasks 0.10.14（Apache-2.0）、MediaPipe Pose Landmarker lite 模型（Apache-2.0）。
 - 倉庫不含任何金鑰／keystore；debug 簽章由本機 `${HOME}/.android/debug.keystore` 產生。

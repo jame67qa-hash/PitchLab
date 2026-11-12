@@ -14,7 +14,10 @@ class MechanicsBaselineTest {
         separation: Double? = 28.0,
         elbow: Double? = 168.0,
         trunk: Double? = 19.0,
-        height: Double? = 0.87
+        height: Double? = 0.87,
+        cameraHeight: Double? = null,
+        cameraPitch: Double? = null,
+        speedScale: Double? = null
     ) = PitchSession(
         startedAtMillis = 1_700_000_000_000L,
         durationMillis = 5_000L,
@@ -22,7 +25,10 @@ class MechanicsBaselineTest {
         separationDeg = separation,
         elbowDeg = elbow,
         trunkTiltDeg = trunk,
-        releaseHeightRatio = height
+        releaseHeightRatio = height,
+        cameraHeightIn = cameraHeight,
+        cameraPitchDeg = cameraPitch,
+        speedScale = speedScale
     )
 
     @Test
@@ -56,6 +62,32 @@ class MechanicsBaselineTest {
         assertEquals(5, baseline.sampleCount)
         assertTrue(baseline.isUsable)
         assertEquals(29.0, baseline.separationDeg!!, 1e-9)
+    }
+
+    @Test
+    fun `fingerprint filters sessions from a different camera setup`() {
+        val current = CameraFingerprint(heightIn = 44.0, pitchDeg = 3.0, speedScale = 1.0)
+        val sessions = listOf(
+            session(80, separation = 30.0, cameraHeight = 44.0, cameraPitch = 3.0, speedScale = 1.0),
+            session(70, separation = 28.0, cameraHeight = 45.0, cameraPitch = 2.0, speedScale = 1.0),
+            session(90, separation = 20.0, cameraHeight = 60.0, cameraPitch = 3.0, speedScale = 1.0),
+            session(60, separation = 5.0, cameraHeight = null, cameraPitch = null),
+            session(null, separation = 1.0, cameraHeight = 44.0, cameraPitch = 3.0)
+        )
+        val baseline = MechanicsBaselineCalculator.from(sessions, current)
+        assertEquals(2, baseline.sampleCount)   // 44/3 與 45/2 都在容許範圍
+        assertEquals(29.0, baseline.separationDeg!!, 1e-9)
+        assertEquals(2, baseline.ignoredSampleCount)  // 60/3 與缺指紋的；無姿勢分數本來就不進基準
+        assertEquals(current, baseline.fingerprint)
+    }
+
+    @Test
+    fun `without fingerprint all scored sessions count and nothing is ignored`() {
+        val sessions = (1..5).map { session(75, cameraHeight = 44.0, cameraPitch = 0.0) }
+        val baseline = MechanicsBaselineCalculator.from(sessions, null)
+        assertEquals(5, baseline.sampleCount)
+        assertEquals(0, baseline.ignoredSampleCount)
+        assertNull(baseline.fingerprint)
     }
 
     @Test

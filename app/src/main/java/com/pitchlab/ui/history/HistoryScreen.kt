@@ -4,6 +4,8 @@ import android.content.Context
 import android.content.Intent
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -24,6 +26,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material3.AssistChip
+import androidx.compose.material3.AssistChipDefaults
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.AlertDialog
@@ -66,6 +70,7 @@ import com.pitchlab.domain.cv.ControlReport
 import com.pitchlab.domain.export.ExportOptions
 import com.pitchlab.domain.export.ExportSelector
 import com.pitchlab.domain.model.PitchSession
+import com.pitchlab.domain.model.PitchType
 import com.pitchlab.ui.theme.AlarmRed
 import com.pitchlab.ui.theme.LaserCyan
 import com.pitchlab.ui.theme.PitchBlack
@@ -189,6 +194,16 @@ fun HistoryScreen(
                     lineHeight = 20.sp
                 )
             }
+        } else if (state.filteredSessions.isEmpty()) {
+            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Text(
+                    text = "這個球種還沒有紀錄\n在相機頁選球種後再投幾球",
+                    color = TextSecondary,
+                    fontSize = 12.sp,
+                    textAlign = TextAlign.Center,
+                    lineHeight = 20.sp
+                )
+            }
         } else {
             LazyColumn(
                 modifier = Modifier
@@ -196,10 +211,19 @@ fun HistoryScreen(
                     .padding(horizontal = 12.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
+                if (state.availableTypes.isNotEmpty()) {
+                    item(key = "type-filter") {
+                        TypeFilterRow(
+                            types = state.availableTypes,
+                            selected = state.typeFilter,
+                            onSelect = viewModel::setTypeFilter
+                        )
+                    }
+                }
                 if (state.controlReport.hasData) {
                     item(key = "control-card") { ControlCard(report = state.controlReport) }
                 }
-                items(state.sessions, key = { it.id }) { session ->
+                items(state.filteredSessions, key = { it.id }) { session ->
                     SessionRow(session = session, onDelete = { viewModel.delete(session.id) })
                 }
                 item { Spacer(Modifier.height(12.dp)) }
@@ -507,9 +531,30 @@ private fun BaselineCard(baseline: MechanicsBaseline, deltas: List<BaselineDelta
                     fontSize = 8.sp
                 )
             }
-            if (!baseline.isUsable) {
+            val fingerprint = baseline.fingerprint
+            if (fingerprint != null) {
+                Spacer(Modifier.height(2.dp))
                 Text(
-                    text = "再投 ${MechanicsBaselineCalculator.MIN_SAMPLES - baseline.sampleCount} 球後開始顯示基準",
+                    text = fingerprint.label() +
+                        if (baseline.ignoredSampleCount > 0) {
+                            " · 另有 ${baseline.ignoredSampleCount} 球屬其他機位，已略過"
+                        } else {
+                            " · 同機位"
+                        },
+                    color = TextSecondary,
+                    fontSize = 8.sp
+                )
+            }
+            if (!baseline.isUsable) {
+                val need = MechanicsBaselineCalculator.MIN_SAMPLES - baseline.sampleCount
+                Text(
+                    text = when {
+                        fingerprint != null && baseline.ignoredSampleCount > 0 ->
+                            "此機位只有 ${baseline.sampleCount} 球，再投 $need 球才建立基準"
+                        fingerprint == null ->
+                            "尚未標定機位，再投 $need 球後開始顯示基準（未綁機位的基準可信度較低）"
+                        else -> "再投 $need 球後開始顯示基準"
+                    },
                     color = RadarAmber,
                     fontSize = 9.sp
                 )
@@ -649,6 +694,33 @@ private fun HeatCell(count: Int, maxCount: Int, isCentroid: Boolean) {
 }
 
 @Composable
+private fun TypeFilterRow(types: List<PitchType>, selected: PitchType?, onSelect: (PitchType?) -> Unit) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .horizontalScroll(rememberScrollState()),
+        horizontalArrangement = Arrangement.spacedBy(6.dp)
+    ) {
+        TypeChip(label = "全部", active = selected == null, onClick = { onSelect(null) })
+        types.forEach { type ->
+            TypeChip(label = type.label, active = selected == type, onClick = { onSelect(type) })
+        }
+    }
+}
+
+@Composable
+private fun TypeChip(label: String, active: Boolean, onClick: () -> Unit) {
+    AssistChip(
+        onClick = onClick,
+        label = { Text(text = label, fontSize = 10.sp) },
+        colors = AssistChipDefaults.assistChipColors(
+            containerColor = if (active) LaserCyan.copy(alpha = 0.20f) else PitchSurface,
+            labelColor = if (active) LaserCyan else TextSecondary
+        )
+    )
+}
+
+@Composable
 private fun SessionRow(session: PitchSession, onDelete: () -> Unit) {
     val formatter = remember { SimpleDateFormat("MM/dd HH:mm:ss", Locale.getDefault()) }
     val context = LocalContext.current
@@ -726,6 +798,16 @@ private fun SessionRow(session: PitchSession, onDelete: () -> Unit) {
                             .padding(horizontal = 6.dp, vertical = 2.dp)
                     ) {
                         Text(text = strikeLabel, color = strikeColor, fontSize = 9.sp, fontWeight = FontWeight.Medium)
+                    }
+                    session.pitchType?.let { type ->
+                        Spacer(Modifier.width(6.dp))
+                        Box(
+                            modifier = Modifier
+                                .background(LaserCyan.copy(alpha = 0.14f), RoundedCornerShape(5.dp))
+                                .padding(horizontal = 6.dp, vertical = 2.dp)
+                        ) {
+                            Text(text = type.label, color = LaserCyan, fontSize = 9.sp)
+                        }
                     }
                     Spacer(Modifier.width(8.dp))
                     Text(text = plate, color = TextSecondary, fontSize = 9.sp)

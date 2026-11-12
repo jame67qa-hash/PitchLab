@@ -76,5 +76,17 @@ data class PitchSessionEntity(
     @ColumnInfo(name = "release_height_ft")
     val releaseHeightFt: Double? = null,
     @ColumnInfo(name = "release_distance_ft")
-    val releaseDistanceFt: Double? = null
+    val releaseDistanceFt: Double? = null,
+
+    /** Phase 11 機位指紋：這一球是用哪個相機設定拍的（舊資料為 null） */
+    @ColumnInfo(name = "camera_height_in")
+    val cameraHeightIn: Double? = null,
+    @ColumnInfo(name = "camera_pitch_deg")
+    val cameraPitchDeg: Double? = null,
+    @ColumnInfo(name = "speed_scale")
+    val speedScale: Double? = null,
+
+    /** Phase 12 球種（PitchType.code）；null = 未標記 */
+    @ColumnInfo(name = "pitch_type")
+    val pitchType: String? = null
 )

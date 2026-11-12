@@ -3,8 +3,12 @@ package com.pitchlab.ui.history
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.pitchlab.domain.model.PitchSession
+import com.pitchlab.domain.model.PitchType
+import com.pitchlab.domain.model.CalibrationProfile
+import com.pitchlab.domain.repository.CalibrationRepository
 import com.pitchlab.domain.repository.PitchSessionRepository
 import com.pitchlab.domain.cv.BaselineDelta
+import com.pitchlab.domain.cv.CameraFingerprint
 import com.pitchlab.domain.cv.ControlAnalyzer
 import com.pitchlab.domain.cv.ControlReport
 import com.pitchlab.domain.cv.PlateSample
@@ -16,6 +20,7 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -44,7 +49,13 @@ data class HistoryUiState(
     /** 最近一球與個人基準的差距（只含有值的指標） */
     val baselineDeltas: List<BaselineDelta> = emptyList(),
     /** 控球熱區與穩定性（最近 40 球有落點的樣本） */
-    val controlReport: ControlReport = ControlReport.EMPTY
+    val controlReport: ControlReport = ControlReport.EMPTY,
+    /** Phase 12：目前篩選的球種；null = 全部 */
+    val typeFilter: PitchType? = null,
+    /** 歷史裡實際出現過的球種（決定顯示哪些篩選 chip） */
+    val availableTypes: List<PitchType> = emptyList(),
+    /** 篩選後要列出的球（列表用；匯出仍用 sessions 全部） */
+    val filteredSessions: List<PitchSession> = emptyList()
 )
 
 /** 一顆球的進壘點 + 判定 + 球速，供歷史頁散點圖繪製 */
@@ -58,23 +69,40 @@ data class PlateMark(
 @HiltViewModel
 class HistoryViewModel @Inject constructor(
     private val repository: PitchSessionRepository,
+    private val calibrationRepository: CalibrationRepository,
     private val exporter: SessionExporter
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(HistoryUiState())
+
+    /** 最近一次收到的資料與標定，切換球種篩選時直接重算，不必重讀資料庫 */
+    private var lastSessions: List<PitchSession> = emptyList()
+    private var lastProfile: CalibrationProfile? = null
     val uiState: StateFlow<HistoryUiState> = _uiState.asStateFlow()
 
     init {
         viewModelScope.launch {
-            repository.observeSessions().collect { sessions -> publish(sessions) }
+            // 基準要綁定「目前生效的機位」，所以同時觀察標定與紀錄；
+            // 重新標定後，不同機位的舊球會自動被排除，不必手動清資料。
+            combine(
+                repository.observeSessions(),
+                calibrationRepository.observeActive()
+            ) { sessions, profile -> sessions to profile }
+                .collect { (sessions, profile) -> publish(sessions, profile) }
         }
     }
 
-    private fun publish(sessions: List<PitchSession>) {
-        val speeds = sessions.mapNotNull { session -> session.fastestMph }
+    private fun publish(sessions: List<PitchSession>, profile: CalibrationProfile?) {
+        lastSessions = sessions
+        lastProfile = profile
+        // 球種篩選只影響「看得到的統計」：熱區、趨勢、列表；
+        // 基準仍用全部同機位的球（球種不該改變你的動作基準）。
+        val filter = _uiState.value.typeFilter
+        val visible = if (filter == null) sessions else sessions.filter { it.pitchType == filter }
+        val speeds = visible.mapNotNull { session -> session.fastestMph }
         // observeRecent 已是 started_at DESC，取前 N 後反轉為「舊 -> 新」
         val trend = speeds.take(12).reversed()
-        val marks = sessions
+        val marks = visible
             .asSequence()
             .filter { it.plateXInches != null && it.plateYInches != null }
             .take(20)
@@ -87,7 +115,7 @@ class HistoryViewModel @Inject constructor(
                 )
             }
             .toList()
-        val controlSamples = sessions
+        val controlSamples = visible
             .asSequence()
             .filter { it.plateXInches != null && it.plateYInches != null }
             .take(40)
@@ -95,7 +123,10 @@ class HistoryViewModel @Inject constructor(
             .toList()
         val controlReport = ControlAnalyzer.analyze(controlSamples)
 
-        val baseline = MechanicsBaselineCalculator.from(sessions)
+        val fingerprint = profile
+            ?.takeIf { it.isValid }
+            ?.let { CameraFingerprint(it.cameraHeightIn, it.cameraPitchDeg, it.speedScale) }
+        val baseline = MechanicsBaselineCalculator.from(sessions, fingerprint)
         val latestScored = sessions.firstOrNull { it.poseScore != null }
         val deltas = if (baseline.isUsable && latestScored != null) {
             MechanicsBaselineCalculator.deviations(
@@ -108,6 +139,9 @@ class HistoryViewModel @Inject constructor(
         _uiState.update {
             it.copy(
                 sessions = sessions,
+                filteredSessions = visible,
+                availableTypes = sessions.mapNotNull { session -> session.pitchType }.distinct(),
+                typeFilter = filter,
                 baseline = baseline.takeIf { baseline.sampleCount > 0 },
                 baselineDeltas = deltas,
                 controlReport = controlReport,
@@ -121,6 +155,12 @@ class HistoryViewModel @Inject constructor(
                 plateMarks = marks
             )
         }
+    }
+
+    /** Phase 12：切換球種篩選；再點同一個球種＝回到全部 */
+    fun setTypeFilter(type: PitchType?) {
+        _uiState.update { it.copy(typeFilter = if (it.typeFilter == type) null else type) }
+        publish(lastSessions, lastProfile)
     }
 
     fun delete(id: Long) {

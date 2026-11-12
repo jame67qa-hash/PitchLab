@@ -9,6 +9,8 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.camera.view.PreviewView
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -64,6 +66,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.pitchlab.domain.model.CameraUiState
+import com.pitchlab.domain.model.PitchType
 import com.pitchlab.domain.model.DetectionSource
 import com.pitchlab.domain.model.LivePitchMetrics
 import com.pitchlab.ui.calibration.CalibrationOverlay
@@ -266,7 +269,12 @@ fun CameraScreen(
                         textAlign = androidx.compose.ui.text.style.TextAlign.Center
                     )
                 }
-                Spacer(Modifier.height(10.dp))
+                Spacer(Modifier.height(8.dp))
+                PitchTypeRow(
+                    selected = state.selectedPitchType,
+                    onSelect = viewModel::selectPitchType
+                )
+                Spacer(Modifier.height(6.dp))
                 ControlBar(
                     state = state,
                     onRecordClick = viewModel::toggleRecording,
@@ -468,6 +476,42 @@ private fun MetricCell(label: String, value: String, unit: String) {
         )
         Text(text = unit, color = TextSecondary.copy(alpha = 0.7f), fontSize = 9.sp)
     }
+}
+
+/**
+ * 球種選擇列：再點一次同一個球種就取消標記。
+ * 放橫向捲動是因為五個球種＋「未標記」在窄螢幕上一定會超出寬度，
+ * 硬塞成兩排會把相機畫面壓縮掉太多。
+ */
+@Composable
+private fun PitchTypeRow(selected: PitchType?, onSelect: (PitchType?) -> Unit) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .horizontalScroll(rememberScrollState()),
+        horizontalArrangement = Arrangement.spacedBy(6.dp)
+    ) {
+        PitchTypeChip(label = "未標記", active = selected == null, onClick = { onSelect(null) })
+        PitchType.entries.forEach { type ->
+            PitchTypeChip(
+                label = type.label,
+                active = selected == type,
+                onClick = { onSelect(type) }
+            )
+        }
+    }
+}
+
+@Composable
+private fun PitchTypeChip(label: String, active: Boolean, onClick: () -> Unit) {
+    AssistChip(
+        onClick = onClick,
+        label = { Text(text = label, fontSize = 9.sp) },
+        colors = AssistChipDefaults.assistChipColors(
+            containerColor = if (active) LaserCyan.copy(alpha = 0.20f) else PitchSurface.copy(alpha = 0.72f),
+            labelColor = if (active) LaserCyan else TextSecondary
+        )
+    )
 }
 
 @Composable

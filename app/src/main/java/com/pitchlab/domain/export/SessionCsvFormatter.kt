@@ -46,7 +46,11 @@ object SessionCsvFormatter {
         "tracked_frames",
         "detected_fps",
         "video_file",
-        "clip_file"
+        "clip_file",
+        "camera_height_in",
+        "camera_pitch_deg",
+        "speed_scale",
+        "pitch_type"
     )
 
     fun toCsv(sessions: List<PitchSession>): String {
@@ -87,7 +91,11 @@ object SessionCsvFormatter {
             session.trackedFrames.toString(),
             session.detectedFps.toString(),
             session.videoPath?.substringAfterLast('/') ?: "",
-            session.clipPath?.substringAfterLast('/') ?: ""
+            session.clipPath?.substringAfterLast('/') ?: "",
+            number(session.cameraHeightIn, 1),
+            number(session.cameraPitchDeg, 1),
+            number(session.speedScale, 2),
+            session.pitchType?.code ?: ""
         )
     }
 

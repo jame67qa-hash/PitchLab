@@ -3,6 +3,7 @@ package com.pitchlab.data.repository
 import com.pitchlab.data.local.PitchSessionDao
 import com.pitchlab.data.local.PitchSessionEntity
 import com.pitchlab.domain.model.PitchSession
+import com.pitchlab.domain.model.PitchType
 import com.pitchlab.domain.repository.PitchSessionRepository
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
@@ -52,7 +53,11 @@ class RoomPitchSessionRepository @Inject constructor(
         trunkTiltDeg = trunkTiltDeg,
         releaseHeightRatio = releaseHeightRatio,
         releaseHeightFt = releaseHeightFt,
-        releaseDistanceFt = releaseDistanceFt
+        releaseDistanceFt = releaseDistanceFt,
+        cameraHeightIn = cameraHeightIn,
+        cameraPitchDeg = cameraPitchDeg,
+        speedScale = speedScale,
+        pitchType = PitchType.fromCode(pitchType)
     )
 
     private fun PitchSession.toEntity() = PitchSessionEntity(
@@ -79,6 +84,10 @@ class RoomPitchSessionRepository @Inject constructor(
         trunkTiltDeg = trunkTiltDeg,
         releaseHeightRatio = releaseHeightRatio,
         releaseHeightFt = releaseHeightFt,
-        releaseDistanceFt = releaseDistanceFt
+        releaseDistanceFt = releaseDistanceFt,
+        cameraHeightIn = cameraHeightIn,
+        cameraPitchDeg = cameraPitchDeg,
+        speedScale = speedScale,
+        pitchType = pitchType?.code
     )
 }
