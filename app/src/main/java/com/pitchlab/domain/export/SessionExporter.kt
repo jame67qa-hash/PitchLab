@@ -5,6 +5,8 @@ import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
+import android.graphics.RadialGradient
+import android.graphics.Shader
 import android.graphics.RectF
 import android.os.Environment
 import android.util.Log
@@ -87,6 +89,7 @@ class SessionExporter @Inject constructor(
 
             // 2) 好球帶 PNG
             writeStrikeZonePng(File(workDir, "strike_zone.png"), selected)
+            writeReleaseMapPng(File(workDir, "release_3d.png"), selected)
 
             // 3) 媒體（片段優先）
             val mediaDir = File(workDir, "media").apply { mkdirs() }
@@ -128,7 +131,8 @@ class SessionExporter @Inject constructor(
                 appendLine()
                 appendLine("檔案：")
                 appendLine("- pitchlab_sessions.csv：全部紀錄（UTF-8 含 BOM，可直接用 Excel 開）")
-                appendLine("- strike_zone.png：好球帶進壘點圖")
+                appendLine("- strike_zone.png：好球帶進壘點圖（含最近 40 球熱區）")
+                appendLine("- release_3d.png：3D 放球高度 vs 距離散點圖（需要 Phase 10 以後的紀錄）")
                 appendLine(
                     if (copyMedia) {
                         "- media/：出手片段（前後各 2 秒，優先）或原始影片，共 $mediaCount 個"
@@ -226,6 +230,27 @@ class SessionExporter @Inject constructor(
             .filter { it.plateXInches != null && it.plateYInches != null }
             .take(40)
             .toList()
+
+        // 熱區：每球畫一團柔邊光暈（重疊越多越亮），比單純畫點更容易看出「常投哪裡」。
+        // 用 RadialGradient 而不是 drawCircle + alpha，是為了避免邊緣出現一圈硬邊。
+        val heatPaint = Paint(Paint.ANTI_ALIAS_FLAG)
+        marks.forEach { session ->
+            val color = when (session.isStrike) {
+                true -> Color.parseColor("#3DDC97")
+                false -> Color.parseColor("#FF5C5C")
+                null -> Color.parseColor("#FFB020")
+            }
+            val cx = px(session.plateXInches!!)
+            val cy = py(session.plateYInches!!)
+            heatPaint.shader = RadialGradient(
+                cx, cy, 62f,
+                Color.argb(70, Color.red(color), Color.green(color), Color.blue(color)),
+                Color.argb(0, Color.red(color), Color.green(color), Color.blue(color)),
+                Shader.TileMode.CLAMP
+            )
+            canvas.drawCircle(cx, cy, 62f, heatPaint)
+        }
+        heatPaint.shader = null
         marks.reversed().forEachIndexed { index, session ->
             val alpha = (90 + 165 * ((index + 1).toFloat() / marks.size.coerceAtLeast(1))).toInt()
                 .coerceIn(0, 255)
@@ -241,6 +266,88 @@ class SessionExporter @Inject constructor(
         bgPaint.color = Color.parseColor("#8B98A5")
         bgPaint.textSize = 24f
         canvas.drawText("好球帶寬 17 in、高 19–42 in；座標範圍 x ±20 in、y 8–46 in", 48f, PNG_HEIGHT - 48f, bgPaint)
+
+        FileOutputStream(target).use { out ->
+            bitmap.compress(Bitmap.CompressFormat.PNG, 100, out)
+        }
+        bitmap.recycle()
+    }
+
+    /**
+     * 3D 放球分佈：橫軸是距本壘距離（40–62 ft），縱軸是放球高度（2–9 ft）。
+     * 這一張能直接看出「出手點是不是越投越低」——低放球點常對應側投或疲勞後掉臂，
+     * 而 CSV 裡的兩欄位單看數字不容易發現趨勢。
+     */
+    private fun writeReleaseMapPng(target: File, sessions: List<PitchSession>) {
+        val bitmap = Bitmap.createBitmap(PNG_WIDTH, PNG_HEIGHT, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(bitmap)
+        canvas.drawColor(Color.parseColor("#0B0F14"))
+
+        val titlePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.parseColor("#E6EDF3")
+            textSize = 42f
+            isFakeBoldText = true
+        }
+        val hintPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.parseColor("#8B98A5")
+            textSize = 26f
+        }
+        val axisPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.parseColor("#2A3B4A")
+            style = Paint.Style.STROKE
+            strokeWidth = 2f
+        }
+        val markPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL }
+
+        val plotLeft = 120f
+        val plotTop = 220f
+        val plotWidth = PNG_WIDTH - 240f
+        val plotHeight = 700f
+        val plotRight = plotLeft + plotWidth
+        val plotBottom = plotTop + plotHeight
+
+        canvas.drawText("PitchLab · 3D 放球分佈", 48f, 96f, titlePaint)
+        val points = ReleaseScatter.pointsOf(sessions)
+        canvas.drawText(
+            if (points.isEmpty()) "此匯出包沒有 3D 放球資料（Phase 10 以前的紀錄沒有這兩個欄位）"
+            else "共 ${points.size} 球（綠=好球 紅=壞球 黃=未判定）· 越靠右下＝越近、越低",
+            48f,
+            142f,
+            hintPaint
+        )
+
+        canvas.drawRect(RectF(plotLeft, plotTop, plotRight, plotBottom), axisPaint)
+        // 垂直網格每 4 ft、水平網格每 1 ft
+        for (step in 0..5) {
+            val x = plotLeft + plotWidth * step / 5f
+            canvas.drawLine(x, plotTop, x, plotBottom, axisPaint)
+        }
+        for (step in 0..7) {
+            val y = plotBottom - plotHeight * step / 7f
+            canvas.drawLine(plotLeft, y, plotRight, y, axisPaint)
+        }
+
+        val labelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.parseColor("#8B98A5")
+            textSize = 24f
+        }
+        canvas.drawText("40 ft", plotLeft - 14f, plotBottom + 34f, labelPaint)
+        canvas.drawText("62 ft", plotRight - 52f, plotBottom + 34f, labelPaint)
+        canvas.drawText("9 ft", 28f, plotTop + 8f, labelPaint)
+        canvas.drawText("2 ft", 28f, plotBottom + 8f, labelPaint)
+
+        points.forEach { point ->
+            val x = plotLeft + ReleaseScatter.normalizeX(point.distanceFt) * plotWidth
+            // 影像 y 向下為正，所以高度越高、y 越小
+            val y = plotBottom - ReleaseScatter.normalizeY(point.heightFt) * plotHeight
+            val color = when (point.isStrike) {
+                true -> Color.parseColor("#3DDC97")
+                false -> Color.parseColor("#FF5C5C")
+                null -> Color.parseColor("#FFB020")
+            }
+            markPaint.color = Color.argb(200, Color.red(color), Color.green(color), Color.blue(color))
+            canvas.drawCircle(x, y, 10f, markPaint)
+        }
 
         FileOutputStream(target).use { out ->
             bitmap.compress(Bitmap.CompressFormat.PNG, 100, out)

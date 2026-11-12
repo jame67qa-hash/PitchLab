@@ -1,4 +1,4 @@
-# PitchLab（Android）— Phase 1–12：高速相機、四點標定、自動剪輯、姿勢評分、匯出、個人基準、出手回饋、控球熱區、3D 放球重建、機位指紋與球種分析
+# PitchLab（Android）— Phase 1–13：高速相機、四點標定、自動剪輯、姿勢評分、匯出、個人基準、出手回饋、控球熱區、3D 放球重建、機位指紋、球種分析與匯出加值
 
 棒球投球追蹤與分析 App 的實作進度。Phase 1 把**高幀率取像 → 逐幀 CV → 物理量換算 → 資料落庫**
 這條主鏈打通並可驗證；Phase 2 在此之上補上「**場地四點標定 → 以雷達實測值校準球速 → 好球帶判定
@@ -745,18 +745,32 @@ Phase 6 的個人基準用歷史中位數建立，但沒有記錄「這些球是
 - 限制：球種是人工標記，不是自動辨識；未標記的球在「全部」裡看得到，但不會出現在任何
   球種篩選中。混淆矩陣式的球種辨識需要更多標註資料，不在本版範圍。
 
-## 18. 下一階段（Phase 13 候選）
+## 18. Phase 13 追加：匯出加值（熱區與 3D 放球分佈）
 
-- 匯出加值：把控球熱區與 3D 放球分佈畫進 `strike_zone.png`（目前 PNG 只有好球帶與單球落點）。
+原本的 `strike_zone.png` 只有一顆球的落點，教練拿到後看不到「這個人常投哪裡」；
+CSV 裡的 `release_height_ft` / `release_distance_ft` 也只是一堆數字，看不出趨勢。
+
+- `strike_zone.png`：最近 40 球改用柔邊光暈疊加（`RadialGradient`，半徑 62 px、
+  中心 alpha 70），重疊越多越亮，可直接看出熱區；最上層仍保留單球圓點與好球帶九宮格。
+- 新增 `release_3d.png`：橫軸距本壘 40–62 ft、縱軸放球高度 2–9 ft 的散點圖，
+  每 4 ft／1 ft 畫網格；綠／紅／黃沿用好球判定顏色。
+  點超出視窗時夾在邊界（`ReleaseScatter.normalizeX/Y` 的 `coerceIn`），不會畫到框外。
+- `ReleaseScatter`（純 Kotlin，3 個單元測試）：只收高度 2–12 ft、距離 30–70 ft 的球，
+  缺值或舊紀錄直接略過；沒有任何 3D 資料時，PNG 上明說「Phase 10 以前的紀錄沒有這兩個欄位」。
+- `README.txt` 同步列出兩張 PNG 的用途，避免收到 zip 的人不知道 `release_3d.png` 是什麼。
+
+## 19. 下一階段（Phase 14 候選）
+
 - 分球種基準：等某球種樣本夠多（例如 30 球）後，另外建立該球種的動作基準。
 - 自動球種建議：用速度與位移特徵（mph、橫移、縱移）做規則式初判，再由使用者確認。
+- 匯出 PDF 報告：把 CSV 摘要、兩張 PNG 與姿勢分數排成一頁 A4，方便列印。
 
 ---
 
-## 19. 授權與版本
+## 20. 授權與版本
 
 - 授權：MIT（見 `LICENSE`，Copyright 2026 PitchLab contributors）。
-- 版本：`1.0.0-phase12`（versionCode 12）。
+- 版本：`1.0.0-phase13`（versionCode 13）。
 - 資料庫：Room v7（`MIGRATION_5_6`、`MIGRATION_6_7` 已隨版本提供，舊資料自動保留）。
 - 第三方：OpenCV 4.10.0（Apache-2.0）、CameraX 1.4.0（Apache-2.0）、
   MediaPipe Tasks 0.10.14（Apache-2.0）、MediaPipe Pose Landmarker lite 模型（Apache-2.0）。
