@@ -19,6 +19,9 @@ data class CalibrationProfile(
     /** 相機鏡頭離地高度（英吋），好球帶高度換算的基準 */
     val cameraHeightIn: Double = 44.0,
 
+    /** 鏡頭俯仰角（度）：正 = 上仰，負 = 下俯。Phase 10 起用於 3D 重建與好球帶高度修正 */
+    val cameraPitchDeg: Double = 0.0,
+
     /** 好球帶上下緣（英吋，相對地面） */
     val strikeZoneTopIn: Double = 42.0,
     val strikeZoneBottomIn: Double = 19.0,
@@ -40,7 +43,8 @@ data class CalibrationProfile(
     fun summary(): String {
         if (!isValid) return "尚未標定"
         val speed = if (isSpeedCalibrated) String.format("%.2f×", speedScale) else "未校準"
-        return "相機 ${String.format("%.0f", cameraHeightIn)} in · 速度刻度 $speed"
+        return "相機 ${String.format("%.0f", cameraHeightIn)} in · 俯仰 " +
+            String.format("%.1f", cameraPitchDeg) + "° · 速度刻度 $speed"
     }
 
     companion object {

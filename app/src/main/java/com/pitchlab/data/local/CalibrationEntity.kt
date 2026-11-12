@@ -23,6 +23,7 @@ data class CalibrationEntity(
     @ColumnInfo(name = "p3y") val p3y: Double,
 
     @ColumnInfo(name = "camera_height_in") val cameraHeightIn: Double,
+    @ColumnInfo(name = "camera_pitch_deg", defaultValue = "0") val cameraPitchDeg: Double = 0.0,
     @ColumnInfo(name = "zone_top_in") val strikeZoneTopIn: Double,
     @ColumnInfo(name = "zone_bottom_in") val strikeZoneBottomIn: Double,
     @ColumnInfo(name = "speed_scale") val speedScale: Double,

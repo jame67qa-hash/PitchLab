@@ -70,5 +70,11 @@ data class PitchSessionEntity(
     @ColumnInfo(name = "trunk_tilt_deg")
     val trunkTiltDeg: Double? = null,
     @ColumnInfo(name = "release_height_ratio")
-    val releaseHeightRatio: Double? = null
+    val releaseHeightRatio: Double? = null,
+
+    /** Phase 10 3D 重建：放球高度／放球距離（英尺，含相機俯仰角修正） */
+    @ColumnInfo(name = "release_height_ft")
+    val releaseHeightFt: Double? = null,
+    @ColumnInfo(name = "release_distance_ft")
+    val releaseDistanceFt: Double? = null
 )

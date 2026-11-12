@@ -12,7 +12,7 @@ import org.junit.Test
 
 class StrikeZoneEvaluatorTest {
 
-    private val evaluator = StrikeZoneEvaluator()
+    private val evaluator = StrikeZoneEvaluator(TrajectoryReconstructor())
 
     private val profile = CalibrationProfile(
         corners = listOf(

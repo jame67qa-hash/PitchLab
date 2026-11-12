@@ -50,7 +50,9 @@ class RoomPitchSessionRepository @Inject constructor(
         separationDeg = separationDeg,
         elbowDeg = elbowDeg,
         trunkTiltDeg = trunkTiltDeg,
-        releaseHeightRatio = releaseHeightRatio
+        releaseHeightRatio = releaseHeightRatio,
+        releaseHeightFt = releaseHeightFt,
+        releaseDistanceFt = releaseDistanceFt
     )
 
     private fun PitchSession.toEntity() = PitchSessionEntity(
@@ -75,6 +77,8 @@ class RoomPitchSessionRepository @Inject constructor(
         separationDeg = separationDeg,
         elbowDeg = elbowDeg,
         trunkTiltDeg = trunkTiltDeg,
-        releaseHeightRatio = releaseHeightRatio
+        releaseHeightRatio = releaseHeightRatio,
+        releaseHeightFt = releaseHeightFt,
+        releaseDistanceFt = releaseDistanceFt
     )
 }

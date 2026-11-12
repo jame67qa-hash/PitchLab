@@ -33,6 +33,8 @@ class SessionCsvFormatterTest {
         elbowDeg = 168.2,
         trunkTiltDeg = 19.0,
         releaseHeightRatio = 0.87,
+        releaseHeightFt = 5.75,
+        releaseDistanceFt = 54.2,
         releaseOffsetMs = 1_200L,
         clipPath = clipPath
     )
@@ -46,6 +48,13 @@ class SessionCsvFormatterTest {
         val rows = csv.removePrefix(SessionCsvFormatter.BOM).trimEnd('\r', '\n').split("\r\n")
         assertEquals(2, rows.size)
         assertEquals(SessionCsvFormatter.HEADER.size, rows[0].split(",").size)
+    }
+
+    @Test
+    fun `release height and distance are exported in feet`() {
+        val row = SessionCsvFormatter.rowOf(session())
+        assertEquals("5.75", row[SessionCsvFormatter.HEADER.indexOf("release_height_ft")])
+        assertEquals("54.20", row[SessionCsvFormatter.HEADER.indexOf("release_distance_ft")])
     }
 
     @Test

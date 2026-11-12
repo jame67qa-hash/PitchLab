@@ -5,7 +5,7 @@ import androidx.room.RoomDatabase
 
 @Database(
     entities = [PitchSessionEntity::class, CalibrationEntity::class],
-    version = 4,   // v4：新增姿勢評分欄位（Phase 4）
+    version = 5,   // v5：新增相機俯仰角與放球高度/距離（Phase 10）
     exportSchema = true
 )
 abstract class PitchLabDatabase : RoomDatabase() {

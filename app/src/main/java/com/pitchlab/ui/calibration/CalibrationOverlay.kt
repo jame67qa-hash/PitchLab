@@ -73,6 +73,7 @@ fun CalibrationOverlay(
     frame: Bitmap?,
     onTapCorner: (NormalizedPoint) -> Unit,
     onCameraHeightChange: (Float) -> Unit,
+    onCameraPitchChange: (Float) -> Unit,
     onRadarChange: (String) -> Unit,
     onEstimatedChange: (String) -> Unit,
     onCompute: () -> Unit,
@@ -94,7 +95,7 @@ fun CalibrationOverlay(
                 onTapCorner = onTapCorner,
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(top = 92.dp, bottom = 260.dp)
+                    .padding(top = 92.dp, bottom = 320.dp)
             )
         }
 
@@ -166,6 +167,35 @@ fun CalibrationOverlay(
                     }
                     Text(
                         text = "鏡頭離地高度（好球帶高度 = 相機高度 − 落點縱向偏移）",
+                        color = TextSecondary.copy(alpha = 0.75f),
+                        fontSize = 9.sp
+                    )
+                    Spacer(Modifier.height(4.dp))
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Text(
+                            text = "俯仰 ${String.format("%+.1f", state.cameraPitchDeg)}°",
+                            color = TextSecondary,
+                            fontSize = 11.sp
+                        )
+                        Slider(
+                            value = state.cameraPitchDeg,
+                            onValueChange = onCameraPitchChange,
+                            valueRange = -15f..15f,
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(28.dp),
+                            colors = SliderDefaults.colors(
+                                thumbColor = LaserCyan,
+                                activeTrackColor = LaserCyan,
+                                inactiveTrackColor = TextSecondary.copy(alpha = 0.35f)
+                            )
+                        )
+                    }
+                    Text(
+                        text = "鏡頭上仰為正。上仰 5°、球在 55 ft 外，忽略俯仰會讓高度差約 5.8 ft",
                         color = TextSecondary.copy(alpha = 0.75f),
                         fontSize = 9.sp
                     )

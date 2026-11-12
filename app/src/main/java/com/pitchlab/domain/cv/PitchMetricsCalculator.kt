@@ -26,7 +26,8 @@ import kotlin.math.hypot
 class PitchMetricsCalculator @Inject constructor(
     private val geometry: PerspectiveTransformCalculator,
     private val registry: CalibrationRegistry,
-    private val strikeZone: StrikeZoneEvaluator
+    private val strikeZone: StrikeZoneEvaluator,
+    private val reconstructor: TrajectoryReconstructor
 ) {
 
     private companion object {
@@ -180,6 +181,18 @@ class PitchMetricsCalculator @Inject constructor(
 
         val avgConfidence = samples.sumOf { it.confidence } / count
 
+        // Phase 10：用相機高度＋俯仰角做 3D 重建，取得放球高度與放球距離。
+        // 取樣本序列的第一筆（離相機最遠、最接近出手點）。
+        val setup = CameraSetup(
+            heightIn = registry.profile.cameraHeightIn.takeIf { it > 0.0 }
+                ?: com.pitchlab.domain.model.CalibrationProfile.DEFAULT_CAMERA_HEIGHT_IN,
+            pitchDeg = registry.profile.cameraPitchDeg
+        )
+        val releasePoint = Point3D(first.xIn, first.yIn, first.zIn)
+        val showRelease = isFinal || count >= 6
+        val releaseHeight = reconstructor.releaseHeightFeet(releasePoint, setup).takeIf { showRelease }
+        val releaseDistance = reconstructor.releaseDistanceFeet(releasePoint, setup).takeIf { showRelease }
+
         return LivePitchMetrics(
             trackedFrames = count,
             timeToPlateMillis = projected?.let { (it.third * 1000.0).toLong() },
@@ -197,7 +210,9 @@ class PitchMetricsCalculator @Inject constructor(
             strikeHeightInches = strike?.heightInches,
             strikeHorizontalInches = strike?.horizontalInches,
             speedCalibrated = registry.profile.isSpeedCalibrated,
-            confidence = avgConfidence.coerceIn(0.0, 1.0)
+            confidence = avgConfidence.coerceIn(0.0, 1.0),
+            releaseHeightFeet = releaseHeight,
+            releaseDistanceFeet = releaseDistance
         )
     }
 

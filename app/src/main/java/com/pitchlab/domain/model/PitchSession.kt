@@ -31,5 +31,8 @@ data class PitchSession(
     val separationDeg: Double? = null,
     val elbowDeg: Double? = null,
     val trunkTiltDeg: Double? = null,
-    val releaseHeightRatio: Double? = null
+    val releaseHeightRatio: Double? = null,
+    /** Phase 10 3D 重建：放球高度／放球距離（英尺） */
+    val releaseHeightFt: Double? = null,
+    val releaseDistanceFt: Double? = null
 )

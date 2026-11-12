@@ -252,6 +252,20 @@ fun CameraScreen(
                     .padding(horizontal = 16.dp, vertical = 12.dp)
             ) {
                 PitchMetricsRow(state.liveMetrics, state.speedCalibrated)
+                state.liveMetrics.releaseHeightFeet?.let { height ->
+                    Text(
+                        text = "3D 放球 " + String.format("%.1f", height) + " ft" +
+                            (state.liveMetrics.releaseDistanceFeet?.let {
+                                " · 距壘 " + String.format("%.1f", it) + " ft"
+                            } ?: ""),
+                        color = LaserCyan,
+                        fontSize = 9.sp,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 3.dp),
+                        textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                    )
+                }
                 Spacer(Modifier.height(10.dp))
                 ControlBar(
                     state = state,
@@ -277,6 +291,7 @@ fun CameraScreen(
                     frame = calibrationFrame,
                     onTapCorner = viewModel::addCalibrationCorner,
                     onCameraHeightChange = viewModel::updateCameraHeight,
+                    onCameraPitchChange = viewModel::updateCameraPitch,
                     onRadarChange = viewModel::updateRadarInput,
                     onEstimatedChange = viewModel::updateEstimatedInput,
                     onCompute = viewModel::computeCalibration,

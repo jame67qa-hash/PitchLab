@@ -1,4 +1,4 @@
-# PitchLab（Android）— Phase 1–9：高速相機、四點標定、自動剪輯、姿勢評分、匯出、個人基準、出手回饋與控球熱區
+# PitchLab（Android）— Phase 1–10：高速相機、四點標定、自動剪輯、姿勢評分、匯出、個人基準、出手回饋、控球熱區與 3D 放球重建
 
 棒球投球追蹤與分析 App 的實作進度。Phase 1 把**高幀率取像 → 逐幀 CV → 物理量換算 → 資料落庫**
 這條主鏈打通並可驗證；Phase 2 在此之上補上「**場地四點標定 → 以雷達實測值校準球速 → 好球帶判定
@@ -689,18 +689,42 @@ Phase 5 的匯出只有一種（全部 + 300 MB 媒體）。Phase 7 把「要匯
 - 限制：只取最近 40 球，且只是 2D 進壘點；球速與位移仍受單目估算影響。
   熱區不會把「投球位置」與「球種」關聯起來（App 尚未記錄球種）。
 
-## 15. 下一階段（Phase 10）
+## 15. Phase 10 追加：3D 放球重建（相機俯仰角）
 
-- 3D 軌跡：加入相機俯仰角／高度，把「忽略俯仰」的投影升級為完整 3D 重建。
-- 基準的機位綁定：在基準資料中加入機位指紋（高度/距離），換機位時自動提示重新累積。
+Phase 1–9 的落點高度用「相機高度 − 影像縱向偏移」，前提是光軸水平。三腳架為了拍
+投手全身常常略為上仰；上仰 5°、球在 55 ft 外，光軸本身就把同一個像素高度抬高了
+`55 ft × sin 5° ≈ 4.8 ft`，忽略俯仰角會讓放球高度與好球帶高度系統性偏低。
+
+- 標定頁新增「俯仰角」滑桿（−15°～+15°，正 = 上仰），與相機高度一起存進 `calibrations`。
+- `TrajectoryReconstructor`（純 Kotlin，6 個單元測試）把相機座標轉到世界座標：
+  `X_w = x_cam`、
+  `Y_w = h − y_cam·cosθ + z_cam·sinθ`、
+  `Z_w = y_cam·sinθ + z_cam·cosθ`
+  （相機 y 軸向下為正，所以 cos 項是減；水平時退化回 `h − y`，與舊行為一致。）
+- 放球高度：取追蹤序列第一幀（最接近出手點）的世界 Y，合理範圍 2–12 ft；
+  放球距離：該幀的世界 Z，合理範圍 30–70 ft。超出範圍回傳 null，不寫進資料庫。
+- 好球帶高度改用 `h − y·cosθ`，因此上仰安裝時不會再把好球判成壞球。
+- Room v5：`calibrations.camera_pitch_deg`（NOT NULL DEFAULT 0）、
+  `pitch_sessions.release_height_ft` / `release_distance_ft`（nullable）。`MIGRATION_4_5` 只加欄位。
+- 顯示：相機 HUD 在測速列下方顯示「3D 放球 5.8 ft · 距壘 54.2 ft」；歷史列表每球一行。
+  CSV 追加 `release_height_ft`、`release_distance_ft`（單位 ft）。
+- 限制：仍是單目重建，深度由球體像素半徑推得，球速刻度會同比例影響距離；
+  沒有相機滾轉（roll）修正，腳架左右歪會讓水平位移有偏差；出手點取「最早被追蹤到的幀」，
+  若前幾幀漏檢，放球高度會偏晚、偏低。
+
+## 16. 下一階段（Phase 11）
+
+- 基準的機位綁定：在基準資料中加入機位指紋（高度／俯仰／距離），換機位時自動提示重新累積。
 - 球種標記：讓使用者為每球標記速球／曲球，熱區與位移才能分球種比較。
+- 匯出加值：把控球熱區與 3D 放球分佈畫進 `strike_zone.png`。
 
 ---
 
-## 16. 授權與版本
+## 17. 授權與版本
 
 - 授權：MIT（見 `LICENSE`，Copyright 2026 PitchLab contributors）。
-- 版本：`1.0.0-phase9`（versionCode 9）。
+- 版本：`1.0.0-phase10`（versionCode 10）。
+- 資料庫：Room v5（`MIGRATION_4_5` 已隨版本提供，舊資料自動保留）。
 - 第三方：OpenCV 4.10.0（Apache-2.0）、CameraX 1.4.0（Apache-2.0）、
   MediaPipe Tasks 0.10.14（Apache-2.0）、MediaPipe Pose Landmarker lite 模型（Apache-2.0）。
 - 倉庫不含任何金鑰／keystore；debug 簽章由本機 `${HOME}/.android/debug.keystore` 產生。

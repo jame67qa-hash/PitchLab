@@ -21,7 +21,9 @@ import javax.inject.Singleton
  *   真正的個人化應該在 Phase 3 由打者身高換算。
  */
 @Singleton
-class StrikeZoneEvaluator @Inject constructor() {
+class StrikeZoneEvaluator @Inject constructor(
+    private val reconstructor: TrajectoryReconstructor
+) {
 
     data class Result(
         val isStrike: Boolean,
@@ -52,7 +54,11 @@ class StrikeZoneEvaluator @Inject constructor() {
         } else {
             fallbackCameraHeightIn
         }
-        val height = cameraHeight - plate.yInches
+        // Phase 10：含俯仰角的 cos 修正（原本是 h - y 的線性近似，忽略鏡頭上仰）
+        val height = reconstructor.plateHeightInches(
+            plateCameraYIn = plate.yInches,
+            setup = CameraSetup(heightIn = cameraHeight, pitchDeg = profile.cameraPitchDeg)
+        )
         val horizontal = plate.xInches
 
         val halfWidth = PLATE_HALF_WIDTH_IN + BALL_RADIUS_IN

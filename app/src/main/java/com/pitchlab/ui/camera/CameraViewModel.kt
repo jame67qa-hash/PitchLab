@@ -322,6 +322,7 @@ class CameraViewModel @Inject constructor(
                 calibration = state.calibration.copy(
                     speedCalibrated = active.isSpeedCalibrated,
                     cameraHeightIn = active.cameraHeightIn.toFloat(),
+                    cameraPitchDeg = active.cameraPitchDeg.toFloat(),
                     zoneTopIn = active.strikeZoneTopIn.toFloat(),
                     zoneBottomIn = active.strikeZoneBottomIn.toFloat(),
                     message = state.calibration.message
@@ -685,7 +686,9 @@ class CameraViewModel @Inject constructor(
             separationDeg = currentMechanics()?.separationDeg,
             elbowDeg = currentMechanics()?.leadElbowDeg,
             trunkTiltDeg = currentMechanics()?.trunkTiltDeg,
-            releaseHeightRatio = currentMechanics()?.releaseHeightRatio
+            releaseHeightRatio = currentMechanics()?.releaseHeightRatio,
+            releaseHeightFt = metrics.releaseHeightFeet,
+            releaseDistanceFt = metrics.releaseDistanceFeet
         )
         runCatching { repository.save(session) }
         announce(session)
@@ -711,7 +714,9 @@ class CameraViewModel @Inject constructor(
             separationDeg = currentMechanics()?.separationDeg,
             elbowDeg = currentMechanics()?.leadElbowDeg,
             trunkTiltDeg = currentMechanics()?.trunkTiltDeg,
-            releaseHeightRatio = currentMechanics()?.releaseHeightRatio
+            releaseHeightRatio = currentMechanics()?.releaseHeightRatio,
+            releaseHeightFt = metrics.releaseHeightFeet,
+            releaseDistanceFt = metrics.releaseDistanceFeet
         )
         runCatching { repository.save(session) }
         announce(session)
@@ -935,6 +940,17 @@ class CameraViewModel @Inject constructor(
         }
     }
 
+    /** 鏡頭俯仰角：正值上仰。範圍刻意收在 ±15°，超過就不是「腳架沒擺平」而是刻意仰拍。 */
+    fun updateCameraPitch(value: Float) {
+        _uiState.update { state ->
+            state.copy(
+                calibration = state.calibration.copy(
+                    cameraPitchDeg = value.coerceIn(-15f, 15f)
+                )
+            )
+        }
+    }
+
     fun updateZoneBounds(topIn: Float, bottomIn: Float) {
         _uiState.update { state ->
             val top = topIn.coerceIn(24f, 60f)
@@ -1037,6 +1053,7 @@ class CameraViewModel @Inject constructor(
         val profile = CalibrationProfile(
             corners = cal.corners,
             cameraHeightIn = cal.cameraHeightIn.toDouble(),
+            cameraPitchDeg = cal.cameraPitchDeg.toDouble(),
             strikeZoneTopIn = cal.zoneTopIn.toDouble(),
             strikeZoneBottomIn = cal.zoneBottomIn.toDouble(),
             speedScale = scale,

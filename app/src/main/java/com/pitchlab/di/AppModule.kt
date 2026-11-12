@@ -82,11 +82,25 @@ object AppModule {
         }
     }
 
+    /**
+     * v4 -> v5：Phase 10 的相機俯仰角與放球高度／距離。
+     * 新欄位都有預設值或可為 null，舊資料不需要回填。
+     */
+    private val MIGRATION_4_5 = object : Migration(4, 5) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL(
+                "ALTER TABLE `calibrations` ADD COLUMN `camera_pitch_deg` REAL NOT NULL DEFAULT 0"
+            )
+            db.execSQL("ALTER TABLE `pitch_sessions` ADD COLUMN `release_height_ft` REAL")
+            db.execSQL("ALTER TABLE `pitch_sessions` ADD COLUMN `release_distance_ft` REAL")
+        }
+    }
+
     @Provides
     @Singleton
     fun provideDatabase(@ApplicationContext context: Context): PitchLabDatabase =
         Room.databaseBuilder(context, PitchLabDatabase::class.java, "pitchlab.db")
-            .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
+            .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
             .build()
 
     @Provides

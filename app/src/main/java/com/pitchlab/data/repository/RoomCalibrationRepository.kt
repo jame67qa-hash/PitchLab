@@ -34,6 +34,7 @@ class RoomCalibrationRepository @Inject constructor(
             NormalizedPoint(p3x.toFloat(), p3y.toFloat())
         ),
         cameraHeightIn = cameraHeightIn,
+        cameraPitchDeg = cameraPitchDeg,
         strikeZoneTopIn = strikeZoneTopIn,
         strikeZoneBottomIn = strikeZoneBottomIn,
         speedScale = speedScale,
@@ -52,6 +53,7 @@ class RoomCalibrationRepository @Inject constructor(
             p2x = points[2].x.toDouble(), p2y = points[2].y.toDouble(),
             p3x = points[3].x.toDouble(), p3y = points[3].y.toDouble(),
             cameraHeightIn = cameraHeightIn,
+            cameraPitchDeg = cameraPitchDeg,
             strikeZoneTopIn = strikeZoneTopIn,
             strikeZoneBottomIn = strikeZoneBottomIn,
             speedScale = speedScale,

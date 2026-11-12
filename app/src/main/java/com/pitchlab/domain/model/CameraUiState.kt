@@ -34,7 +34,10 @@ data class LivePitchMetrics(
     val strikeHeightInches: Double? = null,
     val strikeHorizontalInches: Double? = null,
     val speedCalibrated: Boolean = false,
-    val confidence: Double = 0.0
+    val confidence: Double = 0.0,
+    /** Phase 10 3D 重建：放球高度／距離（英尺）；null = 未取得 */
+    val releaseHeightFeet: Double? = null,
+    val releaseDistanceFeet: Double? = null
 ) {
     companion object {
         val EMPTY = LivePitchMetrics()
@@ -51,6 +54,8 @@ data class CalibrationUiState(
     val hasFrame: Boolean = false,
     val corners: List<NormalizedPoint> = emptyList(),
     val cameraHeightIn: Float = CalibrationProfile.DEFAULT_CAMERA_HEIGHT_IN.toFloat(),
+    /** 鏡頭俯仰角（度），正 = 上仰 */
+    val cameraPitchDeg: Float = 0f,
     val zoneTopIn: Float = CalibrationProfile.DEFAULT_TOP_IN.toFloat(),
     val zoneBottomIn: Float = CalibrationProfile.DEFAULT_BOTTOM_IN.toFloat(),
     val plateWidthPx: Double = 0.0,

@@ -21,7 +21,7 @@ object SessionCsvFormatter {
 
     const val BOM = "\uFEFF"
     private const val LINE_END = "\r\n"
-    private const val UNITS_NOTE = "速度單位 mph、位移與進壘點單位 inch、時間為裝置本地時間"
+    private const val UNITS_NOTE = "速度單位 mph、位移與進壘點單位 inch、放球高度與距離單位 ft、時間為裝置本地時間"
 
     val HEADER: List<String> = listOf(
         "id",
@@ -40,6 +40,8 @@ object SessionCsvFormatter {
         "elbow_deg",
         "trunk_tilt_deg",
         "release_height_ratio",
+        "release_height_ft",
+        "release_distance_ft",
         "release_offset_ms",
         "tracked_frames",
         "detected_fps",
@@ -79,6 +81,8 @@ object SessionCsvFormatter {
             number(session.elbowDeg, 1),
             number(session.trunkTiltDeg, 1),
             number(session.releaseHeightRatio, 3),
+            number(session.releaseHeightFt, 2),
+            number(session.releaseDistanceFt, 2),
             session.releaseOffsetMs?.toString() ?: "",
             session.trackedFrames.toString(),
             session.detectedFps.toString(),

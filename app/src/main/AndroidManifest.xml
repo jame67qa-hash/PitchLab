@@ -71,6 +71,6 @@
         <!-- Hilt 生成的元件無須額外宣告；此處僅保持 tools 命名空間可用 -->
         <meta-data
             android:name="com.pitchlab.PHASE"
-            android:value="9" />
+            android:value="10" />
     </application>
 </manifest>

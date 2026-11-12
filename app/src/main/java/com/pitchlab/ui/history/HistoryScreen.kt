@@ -730,6 +730,17 @@ private fun SessionRow(session: PitchSession, onDelete: () -> Unit) {
                     Spacer(Modifier.width(8.dp))
                     Text(text = plate, color = TextSecondary, fontSize = 9.sp)
                 }
+                if (session.releaseHeightFt != null) {
+                    Spacer(Modifier.height(3.dp))
+                    Text(
+                        text = "放球 " + String.format("%.1f", session.releaseHeightFt) + " ft" +
+                            (session.releaseDistanceFt?.let {
+                                " · 距壘 " + String.format("%.1f", it) + " ft"
+                            } ?: ""),
+                        color = LaserCyan,
+                        fontSize = 9.sp
+                    )
+                }
                 val poseScore = session.poseScore
                 if (poseScore != null) {
                     val grade = when {
