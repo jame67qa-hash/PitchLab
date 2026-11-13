@@ -91,6 +91,20 @@ class MechanicsBaselineTest {
     }
 
     @Test
+    fun `per type baseline needs thirty samples even when five already work`() {
+        val sessions = (1..10).map { session(75, separation = 26.0 + it) }
+        val general = MechanicsBaselineCalculator.from(sessions)
+        val perType = MechanicsBaselineCalculator.from(
+            sessions = sessions,
+            requiredSamples = MechanicsBaselineCalculator.MIN_TYPE_SAMPLES
+        )
+        assertTrue(general.isUsable)
+        assertFalse("10 球不足球種基準的 30 球門檻", perType.isUsable)
+        assertEquals(30, perType.requiredSamples)
+        assertEquals(general.separationDeg, perType.separationDeg)
+    }
+
+    @Test
     fun `deviations skip missing metrics and flag only meaningful gaps`() {
         val baseline = MechanicsBaseline(
             sampleCount = 10,

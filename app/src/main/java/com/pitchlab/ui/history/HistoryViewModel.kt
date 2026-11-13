@@ -14,6 +14,7 @@ import com.pitchlab.domain.cv.ControlReport
 import com.pitchlab.domain.cv.PlateSample
 import com.pitchlab.domain.cv.MechanicsBaseline
 import com.pitchlab.domain.cv.MechanicsBaselineCalculator
+import com.pitchlab.domain.cv.PitchTypeClassifier
 import com.pitchlab.domain.export.ExportOptions
 import com.pitchlab.domain.export.SessionExporter
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -55,7 +56,9 @@ data class HistoryUiState(
     /** 歷史裡實際出現過的球種（決定顯示哪些篩選 chip） */
     val availableTypes: List<PitchType> = emptyList(),
     /** 篩選後要列出的球（列表用；匯出仍用 sessions 全部） */
-    val filteredSessions: List<PitchSession> = emptyList()
+    val filteredSessions: List<PitchSession> = emptyList(),
+    /** 目前球種的專屬基準（需 30 球才可用；null = 未篩選球種） */
+    val typeBaseline: MechanicsBaseline? = null
 )
 
 /** 一顆球的進壘點 + 判定 + 球速，供歷史頁散點圖繪製 */
@@ -127,6 +130,14 @@ class HistoryViewModel @Inject constructor(
             ?.takeIf { it.isValid }
             ?.let { CameraFingerprint(it.cameraHeightIn, it.cameraPitchDeg, it.speedScale) }
         val baseline = MechanicsBaselineCalculator.from(sessions, fingerprint)
+        // 球種基準只用該球種的球，門檻提高到 30 球
+        val typeBaseline = filter?.let {
+            MechanicsBaselineCalculator.from(
+                sessions = visible,
+                fingerprint = fingerprint,
+                requiredSamples = MechanicsBaselineCalculator.MIN_TYPE_SAMPLES
+            )
+        }
         val latestScored = sessions.firstOrNull { it.poseScore != null }
         val deltas = if (baseline.isUsable && latestScored != null) {
             MechanicsBaselineCalculator.deviations(
@@ -142,6 +153,7 @@ class HistoryViewModel @Inject constructor(
                 filteredSessions = visible,
                 availableTypes = sessions.mapNotNull { session -> session.pitchType }.distinct(),
                 typeFilter = filter,
+                typeBaseline = typeBaseline?.takeIf { it.sampleCount > 0 },
                 baseline = baseline.takeIf { baseline.sampleCount > 0 },
                 baselineDeltas = deltas,
                 controlReport = controlReport,

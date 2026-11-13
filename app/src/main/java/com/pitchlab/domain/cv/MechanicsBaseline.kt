@@ -25,9 +25,11 @@ data class MechanicsBaseline(
     /** 這個基準是針對哪個機位算的；null = 尚未標定，無法綁定 */
     val fingerprint: CameraFingerprint? = null,
     /** 因為機位不同而被排除的球數（UI 要說明「略過幾球」） */
-    val ignoredSampleCount: Int = 0
+    val ignoredSampleCount: Int = 0,
+    /** 要幾球才算「可用」；單一球種的基準門檻比整體高（預設 5，球種基準 30） */
+    val requiredSamples: Int = MechanicsBaselineCalculator.MIN_SAMPLES
 ) {
-    val isUsable: Boolean get() = sampleCount >= MechanicsBaselineCalculator.MIN_SAMPLES
+    val isUsable: Boolean get() = sampleCount >= requiredSamples
 }
 
 /** 單一次出手的四項指標快照（可從 CameraViewModel 的 currentMechanics 或最後一筆紀錄取得） */
@@ -70,12 +72,19 @@ object MechanicsBaselineCalculator {
     /** 少於 5 球的中位數沒有統計意義，UI 一律當作「樣本不足」 */
     const val MIN_SAMPLES = 5
 
+    /** 單一球種的基準要 30 球：樣本更少時中位數容易被單一場景（熱身、疲勞）帶偏 */
+    const val MIN_TYPE_SAMPLES = 30
+
     private const val SEPARATION_TOLERANCE = 5.0
     private const val ELBOW_TOLERANCE = 8.0
     private const val TRUNK_TOLERANCE = 5.0
     private const val HEIGHT_TOLERANCE = 0.05
 
-    fun from(sessions: List<PitchSession>, fingerprint: CameraFingerprint? = null): MechanicsBaseline {
+    fun from(
+        sessions: List<PitchSession>,
+        fingerprint: CameraFingerprint? = null,
+        requiredSamples: Int = MIN_SAMPLES
+    ): MechanicsBaseline {
         // 只取有姿勢評分的球：沒偵測到人的球不該進入基準
         val withPose = sessions.filter { it.poseScore != null }
         // 有機位指紋時，只留同一機位的球；不同機位的球混進來等於拿兩把尺平均
@@ -95,7 +104,8 @@ object MechanicsBaselineCalculator {
             releaseHeightRatio = median(scored.mapNotNull { it.releaseHeightRatio }),
             averageScore = if (scored.isEmpty()) null else scored.mapNotNull { it.poseScore }.average(),
             fingerprint = fingerprint,
-            ignoredSampleCount = ignored
+            ignoredSampleCount = ignored,
+            requiredSamples = requiredSamples
         )
     }
 

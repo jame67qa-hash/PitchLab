@@ -88,8 +88,19 @@ class SessionExporter @Inject constructor(
             )
 
             // 2) 好球帶 PNG
-            writeStrikeZonePng(File(workDir, "strike_zone.png"), selected)
-            writeReleaseMapPng(File(workDir, "release_3d.png"), selected)
+            val strikeZonePng = File(workDir, "strike_zone.png")
+            val releaseMapPng = File(workDir, "release_3d.png")
+            writeStrikeZonePng(strikeZonePng, selected)
+            writeReleaseMapPng(releaseMapPng, selected)
+            // PDF 失敗只會少一個檔案，不能讓整個匯出包掛掉
+            val pdfOk = PitchReportPdf.write(
+                target = File(workDir, "report.pdf"),
+                sessions = selected,
+                options = options,
+                stamp = stamp,
+                strikeZonePng = strikeZonePng,
+                releaseMapPng = releaseMapPng
+            )
 
             // 3) 媒體（片段優先）
             val mediaDir = File(workDir, "media").apply { mkdirs() }
@@ -133,6 +144,10 @@ class SessionExporter @Inject constructor(
                 appendLine("- pitchlab_sessions.csv：全部紀錄（UTF-8 含 BOM，可直接用 Excel 開）")
                 appendLine("- strike_zone.png：好球帶進壘點圖（含最近 40 球熱區）")
                 appendLine("- release_3d.png：3D 放球高度 vs 距離散點圖（需要 Phase 10 以後的紀錄）")
+                appendLine(
+                    if (pdfOk) "- report.pdf：兩頁 A4 報告（文字摘要＋熱區＋3D 放球）"
+                    else "- report.pdf：本次產生失敗（CSV 與 PNG 不受影響）"
+                )
                 appendLine(
                     if (copyMedia) {
                         "- media/：出手片段（前後各 2 秒，優先）或原始影片，共 $mediaCount 個"

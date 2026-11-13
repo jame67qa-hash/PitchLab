@@ -71,6 +71,7 @@ import com.pitchlab.domain.export.ExportOptions
 import com.pitchlab.domain.export.ExportSelector
 import com.pitchlab.domain.model.PitchSession
 import com.pitchlab.domain.model.PitchType
+import com.pitchlab.domain.cv.PitchTypeClassifier
 import com.pitchlab.ui.theme.AlarmRed
 import com.pitchlab.ui.theme.LaserCyan
 import com.pitchlab.ui.theme.PitchBlack
@@ -218,6 +219,13 @@ fun HistoryScreen(
                             selected = state.typeFilter,
                             onSelect = viewModel::setTypeFilter
                         )
+                    }
+                }
+                val activeType = state.typeFilter
+                val typeBaseline = state.typeBaseline
+                if (activeType != null && typeBaseline != null) {
+                    item(key = "type-baseline") {
+                        TypeBaselineCard(type = activeType, baseline = typeBaseline)
                     }
                 }
                 if (state.controlReport.hasData) {
@@ -602,6 +610,54 @@ private fun BaselineCell(label: String, value: Double?, unit: String, modifier: 
 
 
 /**
+ * 球種專屬基準：門檻 30 球。樣本不足時只顯示進度，不拿 3 球的「基準」去誤導人。
+ */
+@Composable
+private fun TypeBaselineCard(type: PitchType, baseline: MechanicsBaseline) {
+    Card(
+        colors = CardDefaults.cardColors(
+            containerColor = LaserCyan.copy(alpha = 0.08f),
+            contentColor = TextPrimary
+        ),
+        shape = RoundedCornerShape(12.dp),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = "${type.label}基準",
+                    color = LaserCyan,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.SemiBold
+                )
+                Spacer(Modifier.width(6.dp))
+                Text(
+                    text = "${baseline.sampleCount} 球中位數" +
+                        (baseline.averageScore?.let { " · 平均 ${it.toInt()} 分" } ?: ""),
+                    color = TextSecondary,
+                    fontSize = 8.sp
+                )
+            }
+            if (!baseline.isUsable) {
+                Text(
+                    text = "再投 ${baseline.requiredSamples - baseline.sampleCount} 球才建立${type.label}基準（門檻 ${baseline.requiredSamples} 球）",
+                    color = RadarAmber,
+                    fontSize = 9.sp
+                )
+                return@Column
+            }
+            Spacer(Modifier.height(6.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                BaselineCell("肩髖", baseline.separationDeg, "°", Modifier.weight(1f))
+                BaselineCell("肘角", baseline.elbowDeg, "°", Modifier.weight(1f))
+                BaselineCell("前傾", baseline.trunkTiltDeg, "°", Modifier.weight(1f))
+                BaselineCell("放球高", baseline.releaseHeightRatio, "", Modifier.weight(1f))
+            }
+        }
+    }
+}
+
+/**
  * 控球熱區：九宮格命中次數 + 平均落點 + 散佈半徑。
  *
  * 只把「好球帶內」的球填進九宮格，框外的球另外計數——若把框外硬塞進邊角，
@@ -811,6 +867,18 @@ private fun SessionRow(session: PitchSession, onDelete: () -> Unit) {
                     }
                     Spacer(Modifier.width(8.dp))
                     Text(text = plate, color = TextSecondary, fontSize = 9.sp)
+                }
+                if (session.pitchType == null) {
+                    val suggestion = PitchTypeClassifier.suggest(session)
+                    if (suggestion != null) {
+                        Spacer(Modifier.height(3.dp))
+                        Text(
+                            text = "建議 ${suggestion.type.label}：${suggestion.reason}" +
+                                if (!suggestion.confident) "（特徵不明顯，請自行確認）" else "",
+                            color = RadarAmber,
+                            fontSize = 9.sp
+                        )
+                    }
                 }
                 if (session.releaseHeightFt != null) {
                     Spacer(Modifier.height(3.dp))
