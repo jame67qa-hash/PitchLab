@@ -148,9 +148,10 @@ class PerspectiveTransformCalculator @Inject constructor() {
         return try {
             src.put(0, 0, floatArrayOf(xPx.toFloat(), yPx.toFloat()))
             Core.perspectiveTransform(src, dst, homography)
-            val out = DoubleArray(2)
+            // dst 為 CV_32FC2，必須用 FloatArray 讀取（DoubleArray 只接受 CV_64F）
+            val out = FloatArray(2)
             dst.get(0, 0, out)
-            Point(out[0], out[1])
+            Point(out[0].toDouble(), out[1].toDouble())
         } finally {
             src.release()
             dst.release()

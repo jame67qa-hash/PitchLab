@@ -814,6 +814,84 @@ CSV 裡的 `release_height_ft` / `release_distance_ft` 也只是一堆數字，�
   球速斜率門檻 0.3 mph/球（10 球約 3 mph），避免單球雜訊誤報。
 - 新增 3 個單元測試（同步下滑、只掉速、CSV 投手欄位），總計 109 個。
 
+## 22-A. 實機熱修（Phase 17.1～17.3）
+
+Phase 17 的 APK 在 Samsung SM-A5560（Galaxy A55 / Android 16 / SDK 36 / arm64-v8a）上「一開就閃退」。
+以下兩層原因都是實機 logcat 取得，不是推測。
+
+### 22-A-1 原因一：OpenCV native 庫名稱不一致（啟動即崩）
+
+```
+E com.pitchlab: No implementation found for long org.opencv.core.Mat.n_Mat()
+java.lang.UnsatisfiedLinkError: ... at com.pitchlab.domain.cv.BaseballTracker.<init>(BaseballTracker.kt:58)
+```
+
+再往啟動前 1 秒追，真正的第一張骨牌是：
+
+```
+D/nativeloader: Load libopencv_java4100.so ... dlopen failed: library "libopencv_java4100.so" not found
+E/OpenCvNativeLoader: OpenCV native library load failed
+```
+
+`org.opencv:opencv:4.10.0` 的 `classes.jar` 內 `Core.NATIVE_LIBRARY_NAME = "opencv_java4100"`，
+但同一個 AAR 實際只打包 `libopencv_java4.so`（`jni/arm64-v8a/libopencv_java4.so`，20,897,272 bytes）。
+`System.loadLibrary` 因此必然失敗；舊版 `OpenCvNativeLoader` 用 try/catch 吞掉後回傳 false，
+上層卻照樣 `new Mat()`，於是第一次建立 Mat 就 UnsatisfiedLinkError 閃退。
+
+修法（三層）：
+
+1. `OpenCvNativeLoader` 改為「實際檔名優先」的候選順序：
+   `opencv_java4` → `Core.NATIVE_LIBRARY_NAME` → `opencv_java4100` → `opencv_java3`，
+   每個候選載入後立刻建立並釋放一個 `Mat` 做 JNI 自檢，只有自檢通過才標記 loaded。
+2. `BaseballTracker` 的 `nativeReady` 旗標：native 不可用時**不建立任何 OpenCV 物件**，
+   `processMotion`／`processWhite` 直接回傳空結果，App 不會再因分析層崩潰。
+3. `BaseballTracker`、`PitchAnalyzer`、`YuvToRgbConverter` 的工作 Mat 全部改成 `by lazy`，
+   避免「建構子就先配置 native 記憶體」的失敗模式。
+
+### 22-A-2 原因二：CV_32F 卻用 DoubleArray 讀（每幀都拋例外）
+
+OpenCV 修好之後 App 能啟動，但分析層每幀印：
+
+```
+E/PitchAnalyzer: analyze failed at frame 0
+java.lang.UnsupportedOperationException: Mat data type is not compatible: 5
+    at org.opencv.core.Mat.get(Mat.java:1108)
+    at com.pitchlab.domain.cv.BaseballTracker.finalizeDetection(BaseballTracker.kt:204)
+```
+
+`5` 就是 `CvType.CV_32FC1`。OpenCV Java 的 `Mat.get(row, col, double[])` 只接受 `CV_64F`，
+`KalmanFilter.predict()`／`correct()` 的狀態矩陣是 `CV_32F`，所以必須用 `FloatArray`。
+同樣的錯誤也存在于單應轉換：`perspectiveTransform` 的 `dst` 是 `CV_32FC2`，原本用 `DoubleArray` 讀。
+
+修法：`BaseballTracker.finalizeDetection` 與 `PerspectiveTransformCalculator.imageToField`
+改用 `FloatArray` 讀取，並把 `predict()` 回傳的 Mat 即時 `release()`，避免逐幀累積 native 記憶體。
+
+### 22-A-3 同步修的 UX 風險
+
+相機頁底部垃圾桶圖示原本**一鍵就清空全部歷史**（沒有確認）。已改為 `AlertDialog` 二次確認，
+文案明講「無法復原、MP4 不會被刪除」，與歷史頁的清空對話框一致。
+
+### 22-A-4 實機驗證（Galaxy A55 / Android 16）
+
+| 項目 | 結果 |
+| --- | --- |
+| 啟動 | 存活（`pidof com.pitchlab` 有值，20 秒無崩） |
+| OpenCV | `I/OpenCvNativeLoader: OpenCV native library loaded: libopencv_java4.so` |
+| MediaPipe | `libmediapipe_tasks_vision_jni.so ... ok` |
+| 相機預覽 | 1080×2340 全螢幕預覽、好球帶框線、HUD 正常 |
+| 錄影 | 8 秒測試 → `VideoRecordEvent Finalize`，MP4 存於 `Android/data/com.pitchlab/files/Movies/pitches/` |
+| 分析 | 無 `analyze failed`、無 `UnsatisfiedLinkError` |
+
+### 22-A-5 幀率說明（裝置限制，非程式問題）
+
+Galaxy A55 對第三方 Camera2 只上報 `[30,30]`（沒有 `[60,60]`／`[120,120]`），
+所以 HUD 顯示「已鎖定 30fps（[30,30]）」，實測室內低光 22–27fps。
+`CameraFpsSelector` 的優先序是 120 → 60 → 30，換到有 `[60,60]` 或 `[120,120]` 的機型會自動鎖高幀率；
+A55 的上限是三星 HAL 給的，App 無法繞過（要走 constrained high-speed session，CameraX ImageAnalysis 不支援）。
+要更高幀率只能改用 `Camera2` 原生 constrained session 或外接相機。
+
+---
+
 ## 23. 後續可選項（非必要）
 
 目前 README 列出的功能都已實作。若要繼續，以下是「有價值但不影響現有流程」的方向：
@@ -827,7 +905,7 @@ CSV 裡的 `release_height_ft` / `release_distance_ft` 也只是一堆數字，�
 ## 24. 授權與版本
 
 - 授權：MIT（見 `LICENSE`，Copyright 2026 PitchLab contributors）。
-- 版本：`1.0.0-phase17`（versionCode 17）。
+- 版本：`1.0.0-phase17.3`（versionCode 20，含實機熱修）。
 - 資料庫：Room v8（`MIGRATION_5_6`、`MIGRATION_6_7`、`MIGRATION_7_8` 已隨版本提供，舊資料自動保留）。
 - 單元測試：109 個（純 Kotlin / JVM，不需要裝置）。
 - 第三方：OpenCV 4.10.0（Apache-2.0）、CameraX 1.4.0（Apache-2.0）、

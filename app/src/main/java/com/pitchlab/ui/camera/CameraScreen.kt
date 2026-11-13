@@ -34,6 +34,7 @@ import androidx.compose.material.icons.filled.VolumeOff
 import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material.icons.filled.Straighten
 import androidx.compose.material.icons.filled.Tune
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.AssistChipDefaults
 import androidx.compose.material3.Button
@@ -108,6 +109,9 @@ fun CameraScreen(
                 PackageManager.PERMISSION_GRANTED
         )
     }
+
+    // 清空歷史屬於不可逆操作，先跳確認對話框，避免誤觸底部垃圾桶圖示
+    var showClearConfirm by remember { mutableStateOf(false) }
 
     val permissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestMultiplePermissions()
@@ -286,7 +290,35 @@ fun CameraScreen(
                     state = state,
                     onRecordClick = viewModel::toggleRecording,
                     onToggleColorMode = viewModel::toggleColorMode,
-                    onClearHistory = viewModel::clearSessions
+                    onClearHistory = { showClearConfirm = true }
+                )
+            }
+
+            if (showClearConfirm) {
+                AlertDialog(
+                    onDismissRequest = { showClearConfirm = false },
+                    title = { Text("清空歷史紀錄？", color = TextPrimary, fontSize = 16.sp) },
+                    text = {
+                        Text(
+                            text = "將刪除本機所有投球紀錄（含匯出的 CSV／PNG 索引與片段資料庫），此動作無法復原。已錄下的 MP4 檔案不會被刪除。",
+                            color = TextSecondary,
+                            fontSize = 13.sp
+                        )
+                    },
+                    confirmButton = {
+                        TextButton(
+                            onClick = {
+                                showClearConfirm = false
+                                viewModel.clearSessions()
+                            }
+                        ) { Text("清空", color = AlarmRed) }
+                    },
+                    dismissButton = {
+                        TextButton(onClick = { showClearConfirm = false }) {
+                            Text("取消", color = TextSecondary)
+                        }
+                    },
+                    containerColor = PitchSurface
                 )
             }
 

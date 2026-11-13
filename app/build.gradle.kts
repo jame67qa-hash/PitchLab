@@ -14,8 +14,8 @@ android {
         applicationId = "com.pitchlab"
         minSdk = 24
         targetSdk = 34
-        versionCode = 17
-        versionName = "1.0.0-phase17"
+        versionCode = 20
+        versionName = "1.0.0-phase17.3"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables { useSupportLibrary = true }

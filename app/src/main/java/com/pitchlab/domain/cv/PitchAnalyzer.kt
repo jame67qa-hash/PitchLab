@@ -82,11 +82,12 @@ class PitchAnalyzer(
     val isPoseEnabled: Boolean get() = poseListener != null && poseInterval.get() > 0
 
     // ---------- 分析執行緒獨佔的可重用緩衝 ----------
-    private val grayMat = Mat()
-    private val uprightMat = Mat()
-    private val scaledMat = Mat()
-    private val rgbaMat = Mat()
-    private val bgrMat = Mat()
+    // 延遲建立：OpenCV native 庫若未載入，也不會在建構時崩潰
+    private val grayMat: Mat by lazy { Mat() }
+    private val uprightMat: Mat by lazy { Mat() }
+    private val scaledMat: Mat by lazy { Mat() }
+    private val rgbaMat: Mat by lazy { Mat() }
+    private val bgrMat: Mat by lazy { Mat() }
     private var rowBuffer = ByteArray(0)
     private var bitmapScratch: Bitmap? = null
 

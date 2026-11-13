@@ -20,8 +20,9 @@ import org.opencv.imgproc.Imgproc
  */
 class YuvToRgbConverter {
 
-    private val yuvMat = Mat()
-    private val rgbaMat = Mat()
+    // 延遲建立：OpenCV native 庫若未載入，也不會在建構時崩潰
+    private val yuvMat: Mat by lazy { Mat() }
+    private val rgbaMat: Mat by lazy { Mat() }
 
     private var reusableBitmap: Bitmap? = null
     private var nv21Cache: ByteArray = ByteArray(0)

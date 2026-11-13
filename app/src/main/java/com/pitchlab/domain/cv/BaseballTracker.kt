@@ -1,5 +1,6 @@
 package com.pitchlab.domain.cv
 
+import com.pitchlab.core.cv.OpenCvNativeLoader
 import com.pitchlab.domain.model.BallDetection
 import com.pitchlab.domain.model.DetectionSource
 import org.opencv.core.Core
@@ -54,22 +55,33 @@ class BaseballTracker @Inject constructor() {
         const val TRACK_RESET_GAP_MS = 500
     }
 
-    // ---------- 可重用的工作 Mat（避免每幀分配） ----------
-    private val blurred = Mat()
-    private val fgMask = Mat()
-    private val binary = Mat()
-    private val hsv = Mat()
-    private val roiView = Mat()
-    private val hierarchy = Mat()
+    /**
+     * native 庫是否可用。若不可用，本類別不會建立任何 OpenCV 物件，
+     * 所有檢測直接回傳空結果，避免 UnsatisfiedLinkError 讓 App 閃退。
+     */
+    private val nativeReady: Boolean = OpenCvNativeLoader.ensureLoaded()
+
+    // ---------- 可重用的工作 Mat（延遲建立，避免 native 未載入時在建構子就崩） ----------
+    private val blurred: Mat by lazy { Mat() }
+    private val fgMask: Mat by lazy { Mat() }
+    private val binary: Mat by lazy { Mat() }
+    private val hsv: Mat by lazy { Mat() }
+    private val roiView: Mat by lazy { Mat() }
+    private val hierarchy: Mat by lazy { Mat() }
     private val contourList = ArrayList<MatOfPoint>()
-    private val contour2f = MatOfPoint2f()
-    private val centerPoint = Point()
+    private val contour2f: MatOfPoint2f by lazy { MatOfPoint2f() }
+    private val centerPoint: Point by lazy { Point() }
     private val radiusArray = FloatArray(1)
 
-    private var subtractor: BackgroundSubtractorMOG2 =
-        Video.createBackgroundSubtractorMOG2(300, 26.0, false)
+    private var subtractor: BackgroundSubtractorMOG2? = null
 
-    private val kernel = Imgproc.getStructuringElement(Imgproc.MORPH_ELLIPSE, Size(5.0, 5.0))
+    private val kernel: Mat by lazy {
+        Imgproc.getStructuringElement(Imgproc.MORPH_ELLIPSE, Size(5.0, 5.0))
+    }
+
+    private fun obtainSubtractor(): BackgroundSubtractorMOG2 =
+        subtractor ?: Video.createBackgroundSubtractorMOG2(300, 26.0, false)
+            .also { subtractor = it }
 
     private var kalman: KalmanFilter? = null
     private var missedFrames = 0
@@ -83,11 +95,12 @@ class BaseballTracker @Inject constructor() {
      * @param timestampMs   幀時間戳（毫秒，單調時鐘）
      */
     fun processMotion(gray: Mat, timestampMs: Double): TrackerOutput {
+        if (!nativeReady) return TrackerOutput(null, 0, false)
         if (gray.empty()) return TrackerOutput(null, 0, false)
 
         Imgproc.GaussianBlur(gray, blurred, Size(5.0, 5.0), 0.0)
         // learningRate 0.02：投手/捕手緩慢移動不會長期駐留在前景，但快速來球一定會被檢出
-        subtractor.apply(blurred, fgMask, 0.02)
+        obtainSubtractor().apply(blurred, fgMask, 0.02)
 
         Imgproc.threshold(fgMask, binary, 200.0, 255.0, Imgproc.THRESH_BINARY)
         Imgproc.morphologyEx(binary, binary, Imgproc.MORPH_OPEN, kernel)
@@ -102,6 +115,7 @@ class BaseballTracker @Inject constructor() {
      * 白球 -> 低飽和、高明度；在複雜背景下比運動檢測更穩，但需要彩色幀轉換，開銷更高。
      */
     fun processWhite(bgr: Mat, timestampMs: Double): TrackerOutput {
+        if (!nativeReady) return TrackerOutput(null, 0, false)
         if (bgr.empty()) return TrackerOutput(null, 0, false)
 
         Imgproc.cvtColor(bgr, hsv, Imgproc.COLOR_BGR2HSV)
@@ -186,10 +200,13 @@ class BaseballTracker @Inject constructor() {
 
         val tracker = ensureKalman()
         val predicted = tracker.predict()
-        val predictedState = DoubleArray(predicted.rows() * predicted.cols())
+        // KalmanFilter.predict()/correct() 的狀態 Mat 為 CV_32F，必須用 FloatArray 讀取；
+        // 用 DoubleArray 讀 CV_32F 會拋 UnsupportedOperationException("Mat data type is not compatible: 5")。
+        val predictedState = FloatArray(predicted.rows() * predicted.cols())
         predicted.get(0, 0, predictedState)
-        val predictedX = predictedState[0]
-        val predictedY = predictedState[1]
+        predicted.release()
+        val predictedX = predictedState[0].toDouble()
+        val predictedY = predictedState[1].toDouble()
 
         val associationGate = if (missedFrames == 0) 3.0 else 2.0
         val best = candidates.minByOrNull { c ->
@@ -208,8 +225,14 @@ class BaseballTracker @Inject constructor() {
             measurement.release()
 
             val state = tracker.predict()
-            val smoothed = FloatArray(4)
+            // 同為 CV_32F，用 FloatArray 讀取
+            val smoothed = FloatArray(state.rows() * state.cols())
             state.get(0, 0, smoothed)
+            if (smoothed.size < 4) {
+                state.release()
+                return TrackerOutput(null, 0, false)
+            }
+            state.release()
 
             missedFrames = 0
             lastDetectionTimestampMs = timestampMs
@@ -311,12 +334,19 @@ class BaseballTracker @Inject constructor() {
     fun reset() {
         resetKalman()
         lastDetectionTimestampMs = 0.0
-        subtractor = Video.createBackgroundSubtractorMOG2(300, 26.0, false)
+        subtractor = null
+        if (!nativeReady) return
         fgMask.release()
         binary.release()
     }
 
     fun release() {
+        if (!nativeReady) {
+            contourList.forEach { it.release() }
+            contourList.clear()
+            resetKalman()
+            return
+        }
         blurred.release()
         fgMask.release()
         binary.release()
