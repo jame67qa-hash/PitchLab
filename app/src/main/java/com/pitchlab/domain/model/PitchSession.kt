@@ -40,5 +40,7 @@ data class PitchSession(
     val cameraPitchDeg: Double? = null,
     val speedScale: Double? = null,
     /** Phase 12 球種；null = 未標記 */
-    val pitchType: PitchType? = null
+    val pitchType: PitchType? = null,
+    /** Phase 16 投手檔案；null = 未指定 */
+    val pitcherId: Long? = null
 )

@@ -57,11 +57,13 @@ import com.pitchlab.domain.pose.PoseIndices
 import com.pitchlab.domain.pose.PoseLandmarkerDetector
 import com.pitchlab.domain.repository.CalibrationRepository
 import com.pitchlab.domain.repository.PitchSessionRepository
+import com.pitchlab.domain.repository.PitcherRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
@@ -102,7 +104,8 @@ class CameraViewModel @Inject constructor(
     private val releaseDetector: ReleaseDetector,
     private val clipExtractor: PitchClipExtractor,
     private val mechanicsEvaluator: PitchMechanicsEvaluator,
-    private val feedbackPlayer: PitchFeedbackPlayer
+    private val feedbackPlayer: PitchFeedbackPlayer,
+    private val pitcherRepository: PitcherRepository
 ) : ViewModel() {
 
     private companion object {
@@ -191,6 +194,17 @@ class CameraViewModel @Inject constructor(
         }
         viewModelScope.launch {
             calibrationRepository.observeActive().collect { profile -> applyProfile(profile) }
+        }
+        // Phase 16：現役投手名字同步到 HUD，避免在別人的檔案下繼續錄
+        viewModelScope.launch {
+            combine(
+                pitcherRepository.observePitchers(),
+                pitcherRepository.activePitcherId
+            ) { pitchers, activeId ->
+                pitchers.firstOrNull { it.id == activeId }?.name
+            }.collect { name ->
+                _uiState.update { it.copy(activePitcherName = name) }
+            }
         }
 
         // Phase 3：姿態 -> 出手偵測 -> 自動剪輯
@@ -693,7 +707,8 @@ class CameraViewModel @Inject constructor(
             cameraHeightIn = activeProfile.cameraHeightIn.takeIf { activeProfile.isValid },
             cameraPitchDeg = activeProfile.cameraPitchDeg.takeIf { activeProfile.isValid },
             speedScale = activeProfile.speedScale.takeIf { activeProfile.isValid },
-            pitchType = _uiState.value.selectedPitchType
+            pitchType = _uiState.value.selectedPitchType,
+            pitcherId = pitcherRepository.activePitcherId.value
         )
         runCatching { repository.save(session) }
         announce(session)
@@ -725,7 +740,8 @@ class CameraViewModel @Inject constructor(
             cameraHeightIn = activeProfile.cameraHeightIn.takeIf { activeProfile.isValid },
             cameraPitchDeg = activeProfile.cameraPitchDeg.takeIf { activeProfile.isValid },
             speedScale = activeProfile.speedScale.takeIf { activeProfile.isValid },
-            pitchType = _uiState.value.selectedPitchType
+            pitchType = _uiState.value.selectedPitchType,
+            pitcherId = pitcherRepository.activePitcherId.value
         )
         runCatching { repository.save(session) }
         announce(session)

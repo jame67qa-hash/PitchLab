@@ -51,6 +51,21 @@ class SessionCsvFormatterTest {
     }
 
     @Test
+    fun `pitcher name column is filled from the lookup`() {
+        val csv = SessionCsvFormatter.toCsv(
+            listOf(session().copy(pitcherId = 7L)),
+            pitcherNames = mapOf(7L to "王小明")
+        )
+        val row = csv.removePrefix(SessionCsvFormatter.BOM)
+            .trimEnd('\r', '\n')
+            .split("\r\n")[1]
+            .split(",")
+        assertEquals("王小明", row[SessionCsvFormatter.HEADER.indexOf("pitcher_name")])
+        // 未指定投手時留空，不留 "null"
+        assertEquals("", SessionCsvFormatter.rowOf(session())[SessionCsvFormatter.HEADER.indexOf("pitcher_name")])
+    }
+
+    @Test
     fun `release height and distance are exported in feet`() {
         val row = SessionCsvFormatter.rowOf(session())
         assertEquals("5.75", row[SessionCsvFormatter.HEADER.indexOf("release_height_ft")])

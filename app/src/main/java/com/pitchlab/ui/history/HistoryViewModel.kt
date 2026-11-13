@@ -6,7 +6,9 @@ import com.pitchlab.domain.model.PitchSession
 import com.pitchlab.domain.model.PitchType
 import com.pitchlab.domain.model.CalibrationProfile
 import com.pitchlab.domain.repository.CalibrationRepository
+import com.pitchlab.domain.model.Pitcher
 import com.pitchlab.domain.repository.PitchSessionRepository
+import com.pitchlab.domain.repository.PitcherRepository
 import com.pitchlab.domain.cv.BaselineDelta
 import com.pitchlab.domain.cv.CameraFingerprint
 import com.pitchlab.domain.cv.ControlAnalyzer
@@ -15,6 +17,8 @@ import com.pitchlab.domain.cv.PlateSample
 import com.pitchlab.domain.cv.MechanicsBaseline
 import com.pitchlab.domain.cv.MechanicsBaselineCalculator
 import com.pitchlab.domain.cv.PitchTypeClassifier
+import com.pitchlab.domain.cv.ReleaseTrend
+import com.pitchlab.domain.cv.ReleaseTrendReport
 import com.pitchlab.domain.export.ExportOptions
 import com.pitchlab.domain.export.SessionExporter
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -58,7 +62,14 @@ data class HistoryUiState(
     /** 篩選後要列出的球（列表用；匯出仍用 sessions 全部） */
     val filteredSessions: List<PitchSession> = emptyList(),
     /** 目前球種的專屬基準（需 30 球才可用；null = 未篩選球種） */
-    val typeBaseline: MechanicsBaseline? = null
+    val typeBaseline: MechanicsBaseline? = null,
+    /** Phase 16：投手檔案與目前選取（null = 未指定，看全部） */
+    val pitchers: List<Pitcher> = emptyList(),
+    val activePitcherId: Long? = null,
+    /** 全裝置未指定投手的球數（提示使用者「還有這些沒歸檔」） */
+    val unassignedCount: Int = 0,
+    /** Phase 16：出手高度趨勢（近 20 球） */
+    val releaseTrend: ReleaseTrendReport = ReleaseTrendReport.EMPTY
 )
 
 /** 一顆球的進壘點 + 判定 + 球速，供歷史頁散點圖繪製 */
@@ -73,7 +84,8 @@ data class PlateMark(
 class HistoryViewModel @Inject constructor(
     private val repository: PitchSessionRepository,
     private val calibrationRepository: CalibrationRepository,
-    private val exporter: SessionExporter
+    private val exporter: SessionExporter,
+    private val pitcherRepository: PitcherRepository
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(HistoryUiState())
@@ -81,6 +93,8 @@ class HistoryViewModel @Inject constructor(
     /** 最近一次收到的資料與標定，切換球種篩選時直接重算，不必重讀資料庫 */
     private var lastSessions: List<PitchSession> = emptyList()
     private var lastProfile: CalibrationProfile? = null
+    private var lastPitchers: List<Pitcher> = emptyList()
+    private var lastActivePitcherId: Long? = null
     val uiState: StateFlow<HistoryUiState> = _uiState.asStateFlow()
 
     init {
@@ -89,19 +103,49 @@ class HistoryViewModel @Inject constructor(
             // 重新標定後，不同機位的舊球會自動被排除，不必手動清資料。
             combine(
                 repository.observeSessions(),
-                calibrationRepository.observeActive()
-            ) { sessions, profile -> sessions to profile }
-                .collect { (sessions, profile) -> publish(sessions, profile) }
+                calibrationRepository.observeActive(),
+                pitcherRepository.observePitchers(),
+                pitcherRepository.activePitcherId
+            ) { sessions, profile, pitchers, activeId ->
+                Scope(sessions, profile, pitchers, activeId)
+            }.collect { scope ->
+                publish(scope.sessions, scope.profile, scope.pitchers, scope.activePitcherId)
+            }
         }
     }
 
-    private fun publish(sessions: List<PitchSession>, profile: CalibrationProfile?) {
+    /** combine 一次收四條流：紀錄、標定、投手清單、現役投手 */
+    private data class Scope(
+        val sessions: List<PitchSession>,
+        val profile: CalibrationProfile?,
+        val pitchers: List<Pitcher>,
+        val activePitcherId: Long?
+    )
+
+    private fun publish(
+        sessions: List<PitchSession>,
+        profile: CalibrationProfile?,
+        pitchers: List<Pitcher>,
+        activePitcherId: Long?
+    ) {
         lastSessions = sessions
         lastProfile = profile
+        lastPitchers = pitchers
+        lastActivePitcherId = activePitcherId
+        // 先按投手切，再按球種切：兩個人的基準不能混在一起
+        val scoped = if (activePitcherId == null) {
+            sessions
+        } else {
+            sessions.filter { it.pitcherId == activePitcherId }
+        }
         // 球種篩選只影響「看得到的統計」：熱區、趨勢、列表；
         // 基準仍用全部同機位的球（球種不該改變你的動作基準）。
         val filter = _uiState.value.typeFilter
-        val visible = if (filter == null) sessions else sessions.filter { it.pitchType == filter }
+        val visible = if (filter == null) {
+            scoped
+        } else {
+            scoped.filter { it.pitchType == filter }
+        }
         val speeds = visible.mapNotNull { session -> session.fastestMph }
         // observeRecent 已是 started_at DESC，取前 N 後反轉為「舊 -> 新」
         val trend = speeds.take(12).reversed()
@@ -129,7 +173,7 @@ class HistoryViewModel @Inject constructor(
         val fingerprint = profile
             ?.takeIf { it.isValid }
             ?.let { CameraFingerprint(it.cameraHeightIn, it.cameraPitchDeg, it.speedScale) }
-        val baseline = MechanicsBaselineCalculator.from(sessions, fingerprint)
+        val baseline = MechanicsBaselineCalculator.from(scoped, fingerprint)
         // 球種基準只用該球種的球，門檻提高到 30 球
         val typeBaseline = filter?.let {
             MechanicsBaselineCalculator.from(
@@ -138,7 +182,7 @@ class HistoryViewModel @Inject constructor(
                 requiredSamples = MechanicsBaselineCalculator.MIN_TYPE_SAMPLES
             )
         }
-        val latestScored = sessions.firstOrNull { it.poseScore != null }
+        val latestScored = scoped.firstOrNull { it.poseScore != null }
         val deltas = if (baseline.isUsable && latestScored != null) {
             MechanicsBaselineCalculator.deviations(
                 MechanicsBaselineCalculator.snapshotOf(latestScored),
@@ -149,22 +193,26 @@ class HistoryViewModel @Inject constructor(
         }
         _uiState.update {
             it.copy(
-                sessions = sessions,
+                sessions = scoped,
                 filteredSessions = visible,
-                availableTypes = sessions.mapNotNull { session -> session.pitchType }.distinct(),
+                availableTypes = scoped.mapNotNull { session -> session.pitchType }.distinct(),
                 typeFilter = filter,
                 typeBaseline = typeBaseline?.takeIf { it.sampleCount > 0 },
                 baseline = baseline.takeIf { baseline.sampleCount > 0 },
                 baselineDeltas = deltas,
                 controlReport = controlReport,
                 isLoading = false,
-                strikeCount = sessions.count { session -> session.isStrike == true },
-                ballCount = sessions.count { session -> session.isStrike == false },
-                unknownCount = sessions.count { session -> session.isStrike == null },
+                strikeCount = scoped.count { session -> session.isStrike == true },
+                ballCount = scoped.count { session -> session.isStrike == false },
+                unknownCount = scoped.count { session -> session.isStrike == null },
                 fastestMph = speeds.maxOrNull(),
                 averageMph = if (speeds.isEmpty()) null else speeds.average(),
                 speedTrend = trend,
-                plateMarks = marks
+                plateMarks = marks,
+                pitchers = pitchers,
+                activePitcherId = activePitcherId,
+                unassignedCount = sessions.count { it.pitcherId == null },
+                releaseTrend = ReleaseTrend.from(scoped)
             )
         }
     }
@@ -172,7 +220,47 @@ class HistoryViewModel @Inject constructor(
     /** Phase 12：切換球種篩選；再點同一個球種＝回到全部 */
     fun setTypeFilter(type: PitchType?) {
         _uiState.update { it.copy(typeFilter = if (it.typeFilter == type) null else type) }
-        publish(lastSessions, lastProfile)
+        publish(lastSessions, lastProfile, lastPitchers, lastActivePitcherId)
+    }
+
+    /** Phase 16：切換投手（再點同一個＝回到未指定） */
+    fun setActivePitcher(id: Long?) {
+        pitcherRepository.setActive(if (_uiState.value.activePitcherId == id) null else id)
+    }
+
+    fun addPitcher(name: String, onResult: (String?) -> Unit) {
+        val error = Pitcher.validate(name)
+        if (error != null) {
+            onResult(error)
+            return
+        }
+        viewModelScope.launch {
+            runCatching { pitcherRepository.add(name) }
+                .onSuccess { onResult(null) }
+                .onFailure { onResult("新增失敗：${it.message}") }
+        }
+    }
+
+    fun renamePitcher(id: Long, name: String, onResult: (String?) -> Unit) {
+        val error = Pitcher.validate(name)
+        if (error != null) {
+            onResult(error)
+            return
+        }
+        viewModelScope.launch {
+            runCatching { pitcherRepository.rename(id, name) }
+                .onSuccess { onResult(null) }
+                .onFailure { onResult("改名失敗：${it.message}") }
+        }
+    }
+
+    fun deletePitcher(id: Long) {
+        viewModelScope.launch {
+            runCatching { pitcherRepository.delete(id) }
+                .onFailure { error ->
+                    _uiState.update { it.copy(message = "刪除投手失敗：${error.message}") }
+                }
+        }
     }
 
     fun delete(id: Long) {

@@ -88,5 +88,9 @@ data class PitchSessionEntity(
 
     /** Phase 12 球種（PitchType.code）；null = 未標記 */
     @ColumnInfo(name = "pitch_type")
-    val pitchType: String? = null
+    val pitchType: String? = null,
+
+    /** Phase 16 投手檔案；null = 未指定（Phase 16 以前的紀錄都屬此類） */
+    @ColumnInfo(name = "pitcher_id")
+    val pitcherId: Long? = null
 )

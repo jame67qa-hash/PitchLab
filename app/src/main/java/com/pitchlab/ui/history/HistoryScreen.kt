@@ -36,9 +36,11 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.RadioButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.RadioButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.TextButton
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.runtime.Composable
@@ -71,7 +73,9 @@ import com.pitchlab.domain.export.ExportOptions
 import com.pitchlab.domain.export.ExportSelector
 import com.pitchlab.domain.model.PitchSession
 import com.pitchlab.domain.model.PitchType
+import com.pitchlab.domain.model.Pitcher
 import com.pitchlab.domain.cv.PitchTypeClassifier
+import com.pitchlab.domain.cv.ReleaseTrendReport
 import com.pitchlab.ui.theme.AlarmRed
 import com.pitchlab.ui.theme.LaserCyan
 import com.pitchlab.ui.theme.PitchBlack
@@ -101,6 +105,8 @@ fun HistoryScreen(
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     val context = LocalContext.current
     var showExportDialog by remember { mutableStateOf(false) }
+    var showAddPitcher by remember { mutableStateOf(false) }
+    var showManagePitchers by remember { mutableStateOf(false) }
 
     // 匯出完成 -> 交給系統分享（ViewModel 只給路徑，Intent 留在 UI 層）
     LaunchedEffect(state.shareZipPath) {
@@ -157,6 +163,15 @@ fun HistoryScreen(
                 Text("清空", color = AlarmRed, fontSize = 12.sp)
             }
         }
+
+        PitcherRow(
+            pitchers = state.pitchers,
+            activePitcherId = state.activePitcherId,
+            unassignedCount = state.unassignedCount,
+            onSelect = viewModel::setActivePitcher,
+            onAdd = { showAddPitcher = true },
+            onManage = { showManagePitchers = true }
+        )
 
         SummaryRow(
             fastestMph = state.fastestMph,
@@ -231,12 +246,37 @@ fun HistoryScreen(
                 if (state.controlReport.hasData) {
                     item(key = "control-card") { ControlCard(report = state.controlReport) }
                 }
+                if (state.releaseTrend.hasData) {
+                    item(key = "release-trend") {
+                        ReleaseTrendCard(report = state.releaseTrend)
+                    }
+                }
                 items(state.filteredSessions, key = { it.id }) { session ->
                     SessionRow(session = session, onDelete = { viewModel.delete(session.id) })
                 }
                 item { Spacer(Modifier.height(12.dp)) }
             }
         }
+    }
+
+    if (showManagePitchers) {
+        ManagePitchersDialog(
+            pitchers = state.pitchers,
+            onDismiss = { showManagePitchers = false },
+            onRename = { id, name, done -> viewModel.renamePitcher(id, name, done) },
+            onDelete = { id -> viewModel.deletePitcher(id) }
+        )
+    }
+
+    if (showAddPitcher) {
+        AddPitcherDialog(
+            onDismiss = { showAddPitcher = false },
+            onConfirm = { name ->
+                viewModel.addPitcher(name) { error ->
+                    if (error == null) showAddPitcher = false
+                }
+            }
+        )
     }
 
     if (showExportDialog) {
@@ -997,4 +1037,286 @@ private fun shareZip(context: Context, path: String) {
             }
         )
     }
+}
+
+/**
+ * 投手列：chip 選人，最後一顆是「＋」新增。
+ * 「全部」代表未指定，適合只有一位投手、或還沒建檔就想先看資料的情況。
+ */
+@Composable
+private fun PitcherRow(
+    pitchers: List<Pitcher>,
+    activePitcherId: Long?,
+    unassignedCount: Int,
+    onSelect: (Long?) -> Unit,
+    onAdd: () -> Unit,
+    onManage: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .horizontalScroll(rememberScrollState())
+            .padding(horizontal = 12.dp),
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        AssistChip(
+            onClick = { onSelect(null) },
+            label = { Text("全部", fontSize = 11.sp) },
+            colors = AssistChipDefaults.assistChipColors(
+                labelColor = if (activePitcherId == null) LaserCyan else TextSecondary
+            )
+        )
+        pitchers.forEach { pitcher ->
+            AssistChip(
+                onClick = { onSelect(pitcher.id) },
+                label = {
+                    Text(
+                        text = pitcher.name,
+                        fontSize = 11.sp,
+                        color = if (activePitcherId == pitcher.id) LaserCyan else TextSecondary
+                    )
+                }
+            )
+        }
+        AssistChip(
+            onClick = onAdd,
+            label = { Text("＋ 投手", fontSize = 11.sp, color = TextSecondary) }
+        )
+        if (pitchers.isNotEmpty()) {
+            AssistChip(
+                onClick = onManage,
+                label = { Text("管理", fontSize = 11.sp, color = TextSecondary) }
+            )
+        }
+        if (unassignedCount > 0 && activePitcherId != null) {
+            Text(
+                text = "另有 $unassignedCount 球未指定",
+                color = RadarAmber,
+                fontSize = 8.sp
+            )
+        }
+    }
+}
+
+/** 新增投手：只要求名稱，長度與空白在 ViewModel / 領域層驗證 */
+@Composable
+private fun AddPitcherDialog(onDismiss: () -> Unit, onConfirm: (String) -> Unit) {
+    var name by remember { mutableStateOf("") }
+    var error by remember { mutableStateOf<String?>(null) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("新增投手", color = TextPrimary, fontSize = 16.sp) },
+        text = {
+            Column {
+                OutlinedTextField(
+                    value = name,
+                    onValueChange = {
+                        name = it
+                        error = null
+                    },
+                    singleLine = true,
+                    label = { Text("投手名稱", fontSize = 11.sp) },
+                    isError = error != null,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                error?.let {
+                    Spacer(Modifier.height(4.dp))
+                    Text(it, color = AlarmRed, fontSize = 10.sp)
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = {
+                val problem = Pitcher.validate(name)
+                if (problem == null) onConfirm(name.trim()) else error = problem
+            }) { Text("新增", color = LaserCyan) }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("取消", color = TextSecondary) }
+        },
+        containerColor = PitchSurface
+    )
+}
+
+/**
+ * 出手高度趨勢（近 20 球）。掉臂常見於疲勞，但球速還撐著，
+ * 所以這張圖和球速趨勢分開看；判讀文字用斜率，而不是「最後一球比第一球」，
+ * 因為單球的量測誤差比較大。
+ */
+@Composable
+private fun ReleaseTrendCard(report: ReleaseTrendReport) {
+    Card(
+        colors = CardDefaults.cardColors(containerColor = PitchSurface),
+        shape = RoundedCornerShape(12.dp),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(modifier = Modifier.padding(10.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("出手高度趨勢", color = TextPrimary, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                Spacer(Modifier.weight(1f))
+                Text("${report.points.size} 球（舊 → 新）", color = TextSecondary, fontSize = 8.sp)
+            }
+            Text(
+                text = report.verdict,
+                color = if (report.slopePerPitch <= -0.08) RadarAmber else TextSecondary,
+                fontSize = 9.sp
+            )
+            Spacer(Modifier.height(4.dp))
+            val heights = report.points.map { it.heightFt }
+            val speeds = report.points.mapNotNull { it.speedMph }
+            Canvas(modifier = Modifier.fillMaxWidth().height(72.dp)) {
+                val minValue = (heights.min() - 0.2)
+                val maxValue = (heights.max() + 0.2)
+                val span = (maxValue - minValue).coerceAtLeast(0.2)
+                val stepX = if (heights.size <= 1) 0f else size.width / (heights.size - 1)
+                fun py(v: Double) = ((maxValue - v) / span * size.height * 0.86 + size.height * 0.07).toFloat()
+
+                drawLine(
+                    color = TextSecondary.copy(alpha = 0.3f),
+                    start = Offset(0f, py(heights.average())),
+                    end = Offset(size.width, py(heights.average())),
+                    strokeWidth = 1f
+                )
+                val path = Path()
+                report.points.forEachIndexed { index, point ->
+                    val offset = Offset(stepX * index, py(point.heightFt))
+                    if (index == 0) path.moveTo(offset.x, offset.y) else path.lineTo(offset.x, offset.y)
+                }
+                drawPath(path = path, color = LaserCyan, style = Stroke(width = 2f))
+                report.points.forEachIndexed { index, point ->
+                    drawCircle(
+                        color = if (index == report.points.lastIndex) RadarAmber else LaserCyan,
+                        radius = if (index == report.points.lastIndex) 4f else 3f,
+                        center = Offset(stepX * index, py(point.heightFt))
+                    )
+                }
+                // 球速疊在同一張圖但用獨立的尺度（灰色細線），只看「趨勢是否同步」。
+                // x 座標仍用球序，缺速度的球直接跳過，不壓縮時間軸。
+                if (speeds.size >= 3) {
+                    val speedMin = speeds.min() - 1.0
+                    val speedMax = speeds.max() + 1.0
+                    val speedSpan = (speedMax - speedMin).coerceAtLeast(1.0)
+                    fun pySpeed(v: Double) =
+                        ((speedMax - v) / speedSpan * size.height * 0.86 + size.height * 0.07).toFloat()
+                    val speedPath = Path()
+                    var hasPoint = false
+                    report.points.forEach { point ->
+                        val v = point.speedMph ?: return@forEach
+                        val offset = Offset(stepX * (point.index - 1), pySpeed(v))
+                        if (!hasPoint) {
+                            speedPath.moveTo(offset.x, offset.y)
+                            hasPoint = true
+                        } else {
+                            speedPath.lineTo(offset.x, offset.y)
+                        }
+                    }
+                    drawPath(
+                        path = speedPath,
+                        color = TextSecondary.copy(alpha = 0.55f),
+                        style = Stroke(width = 1.2f)
+                    )
+                }
+            }
+            val average = report.averageHeightFt
+            Text(
+                text = average?.let {
+                    val delta = report.deltaFt
+                    "高度 平均 " + String.format("%.2f", it) + " ft" +
+                        (delta?.let { d -> " · 區間 " + String.format("%+.2f", d) + " ft" } ?: "") +
+                        (report.averageSpeedMph?.let { speed ->
+                            " ／ 球速 平均 " + String.format("%.1f", speed) + " mph"
+                        } ?: "")
+                } ?: "—",
+                color = TextSecondary.copy(alpha = 0.7f),
+                fontSize = 8.sp
+            )
+        }
+    }
+}
+
+/**
+ * 管理投手：改名與刪除。
+ *
+ * 刪除只解除紀錄的歸屬（`detachPitcher`），球本身不會消失；
+ * 對話框先把後果講清楚，避免誤刪後以為資料被清空。
+ */
+@Composable
+private fun ManagePitchersDialog(
+    pitchers: List<Pitcher>,
+    onDismiss: () -> Unit,
+    onRename: (Long, String, (String?) -> Unit) -> Unit,
+    onDelete: (Long) -> Unit
+) {
+    var drafts by remember { mutableStateOf<Map<Long, String>>(emptyMap()) }
+    var error by remember { mutableStateOf<String?>(null) }
+    var pendingDelete by remember { mutableStateOf<Pitcher?>(null) }
+
+    if (pitchers.isEmpty()) {
+        AlertDialog(
+            onDismissRequest = onDismiss,
+            title = { Text("還沒有投手", color = TextPrimary, fontSize = 16.sp) },
+            text = { Text("先用「＋ 投手」新增一位，之後每一球都會標上他的名字。", color = TextSecondary, fontSize = 12.sp) },
+            confirmButton = { TextButton(onClick = onDismiss) { Text("了解", color = LaserCyan) } },
+            containerColor = PitchSurface
+        )
+        return
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("管理投手", color = TextPrimary, fontSize = 16.sp) },
+        text = {
+            Column {
+                pitchers.forEach { pitcher ->
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        OutlinedTextField(
+                            value = drafts[pitcher.id] ?: pitcher.name,
+                            onValueChange = { value ->
+                                drafts = drafts + (pitcher.id to value)
+                                error = null
+                            },
+                            singleLine = true,
+                            modifier = Modifier.weight(1f)
+                        )
+                        TextButton(onClick = {
+                            val name = drafts[pitcher.id] ?: pitcher.name
+                            onRename(pitcher.id, name) { problem ->
+                                error = problem
+                                if (problem == null) drafts = drafts - pitcher.id
+                            }
+                        }) { Text("儲存", color = LaserCyan, fontSize = 11.sp) }
+                        IconButton(onClick = { pendingDelete = pitcher }) {
+                            Icon(Icons.Filled.Delete, contentDescription = "刪除投手", tint = AlarmRed)
+                        }
+                    }
+                }
+                error?.let {
+                    Spacer(Modifier.height(4.dp))
+                    Text(it, color = AlarmRed, fontSize = 10.sp)
+                }
+                if (pendingDelete != null) {
+                    Spacer(Modifier.height(6.dp))
+                    Text(
+                        text = "刪除「${pendingDelete?.name}」只會取消紀錄的歸屬，球不會被刪除。",
+                        color = RadarAmber,
+                        fontSize = 10.sp
+                    )
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        TextButton(onClick = { pendingDelete = null }) {
+                            Text("取消", color = TextSecondary, fontSize = 11.sp)
+                        }
+                        TextButton(onClick = {
+                            pendingDelete?.let { onDelete(it.id) }
+                            pendingDelete = null
+                        }) { Text("確認刪除", color = AlarmRed, fontSize = 11.sp) }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) { Text("關閉", color = LaserCyan) }
+        },
+        containerColor = PitchSurface
+    )
 }

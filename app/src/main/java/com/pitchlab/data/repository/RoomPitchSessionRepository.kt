@@ -57,7 +57,8 @@ class RoomPitchSessionRepository @Inject constructor(
         cameraHeightIn = cameraHeightIn,
         cameraPitchDeg = cameraPitchDeg,
         speedScale = speedScale,
-        pitchType = PitchType.fromCode(pitchType)
+        pitchType = PitchType.fromCode(pitchType),
+        pitcherId = pitcherId
     )
 
     private fun PitchSession.toEntity() = PitchSessionEntity(
@@ -88,6 +89,7 @@ class RoomPitchSessionRepository @Inject constructor(
         cameraHeightIn = cameraHeightIn,
         cameraPitchDeg = cameraPitchDeg,
         speedScale = speedScale,
-        pitchType = pitchType?.code
+        pitchType = pitchType?.code,
+        pitcherId = pitcherId
     )
 }

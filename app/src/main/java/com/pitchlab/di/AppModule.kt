@@ -6,9 +6,11 @@ import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 import com.pitchlab.core.cv.YuvToRgbConverter
 import com.pitchlab.data.local.CalibrationDao
+import com.pitchlab.data.local.PitcherDao
 import com.pitchlab.data.local.PitchLabDatabase
 import com.pitchlab.data.local.PitchSessionDao
 import com.pitchlab.data.repository.RoomCalibrationRepository
+import com.pitchlab.data.repository.RoomPitcherRepository
 import com.pitchlab.data.repository.RoomPitchSessionRepository
 import com.pitchlab.domain.cv.CalibrationRegistry
 import com.pitchlab.domain.cv.HomographySolver
@@ -18,6 +20,7 @@ import com.pitchlab.domain.cv.ReleaseDetector
 import com.pitchlab.domain.media.PitchClipExtractor
 import com.pitchlab.domain.pose.PoseLandmarkerDetector
 import com.pitchlab.domain.repository.CalibrationRepository
+import com.pitchlab.domain.repository.PitcherRepository
 import com.pitchlab.domain.repository.PitchSessionRepository
 import dagger.Module
 import dagger.Provides
@@ -112,11 +115,28 @@ object AppModule {
         }
     }
 
+    /**
+     * v7 -> v8：投手檔案（Phase 16）。
+     * 只新增 pitchers 表與一個 nullable 欄位；既有紀錄的 pitcher_id 為 null，
+     * 在 UI 上表現為「未指定」，不會消失也不會被算錯。
+     */
+    private val MIGRATION_7_8 = object : Migration(7, 8) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL(
+                "CREATE TABLE IF NOT EXISTS `pitchers` (" +
+                    "`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, " +
+                    "`name` TEXT NOT NULL, " +
+                    "`created_at` INTEGER NOT NULL)"
+            )
+            db.execSQL("ALTER TABLE `pitch_sessions` ADD COLUMN `pitcher_id` INTEGER")
+        }
+    }
+
     @Provides
     @Singleton
     fun provideDatabase(@ApplicationContext context: Context): PitchLabDatabase =
         Room.databaseBuilder(context, PitchLabDatabase::class.java, "pitchlab.db")
-            .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7)
+            .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8)
             .build()
 
     @Provides
@@ -126,6 +146,16 @@ object AppModule {
     @Provides
     fun provideCalibrationDao(database: PitchLabDatabase): CalibrationDao =
         database.calibrationDao()
+
+    @Provides
+    fun providePitcherDao(database: PitchLabDatabase): PitcherDao =
+        database.pitcherDao()
+
+    @Provides
+    @Singleton
+    fun providePitcherRepository(
+        impl: RoomPitcherRepository
+    ): PitcherRepository = impl
 
     @Provides
     @Singleton

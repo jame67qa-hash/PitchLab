@@ -269,6 +269,13 @@ fun CameraScreen(
                         textAlign = androidx.compose.ui.text.style.TextAlign.Center
                     )
                 }
+                Text(
+                    text = "投手：" + (state.activePitcherName ?: "未指定（歷史頁可新增）"),
+                    color = if (state.activePitcherName == null) RadarAmber else TextSecondary,
+                    fontSize = 9.sp,
+                    modifier = Modifier.fillMaxWidth(),
+                    textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                )
                 Spacer(Modifier.height(8.dp))
                 PitchTypeRow(
                     selected = state.selectedPitchType,

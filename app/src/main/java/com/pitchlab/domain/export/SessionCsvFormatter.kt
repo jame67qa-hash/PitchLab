@@ -50,19 +50,28 @@ object SessionCsvFormatter {
         "camera_height_in",
         "camera_pitch_deg",
         "speed_scale",
-        "pitch_type"
+        "pitch_type",
+        "pitcher_name"
     )
 
-    fun toCsv(sessions: List<PitchSession>): String {
+    /**
+     * @param pitcherNames 投手 id -> 名稱；未指定投手的球會留空。
+     *        名稱放在 CSV 而不是只給 id，是為了讓教練直接用 Excel 樞紐分析。
+     */
+    fun toCsv(
+        sessions: List<PitchSession>,
+        pitcherNames: Map<Long, String> = emptyMap()
+    ): String {
         val builder = StringBuilder(BOM)
         builder.append(HEADER.joinToString(",")).append(LINE_END)
         for (session in sessions) {
-            builder.append(rowOf(session).joinToString(",") { escape(it) }).append(LINE_END)
+            val name = session.pitcherId?.let { pitcherNames[it] } ?: ""
+            builder.append(rowOf(session, name).joinToString(",") { escape(it) }).append(LINE_END)
         }
         return builder.toString()
     }
 
-    fun rowOf(session: PitchSession): List<String> {
+    fun rowOf(session: PitchSession, pitcherName: String = ""): List<String> {
         val formatter = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US)
         return listOf(
             session.id.toString(),
@@ -95,7 +104,8 @@ object SessionCsvFormatter {
             number(session.cameraHeightIn, 1),
             number(session.cameraPitchDeg, 1),
             number(session.speedScale, 2),
-            session.pitchType?.code ?: ""
+            session.pitchType?.code ?: "",
+            pitcherName
         )
     }
 

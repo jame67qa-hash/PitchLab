@@ -12,6 +12,7 @@ import android.os.Environment
 import android.util.Log
 import androidx.annotation.WorkerThread
 import com.pitchlab.domain.model.PitchSession
+import com.pitchlab.domain.repository.PitcherRepository
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.io.BufferedOutputStream
 import java.io.File
@@ -21,6 +22,8 @@ import java.util.Date
 import java.util.Locale
 import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.runBlocking
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -37,7 +40,8 @@ import javax.inject.Singleton
  */
 @Singleton
 class SessionExporter @Inject constructor(
-    @ApplicationContext private val context: Context
+    @ApplicationContext private val context: Context,
+    private val pitcherRepository: PitcherRepository
 ) {
 
     companion object {
@@ -81,9 +85,14 @@ class SessionExporter @Inject constructor(
                 return ExportResult(null, "無法建立匯出目錄")
             }
 
-            // 1) CSV
+            // 1) CSV（帶投手名稱；匯出已在 IO 執行緒，這裡同步讀一次清單）
+            val pitcherNames = runBlocking {
+                runCatching { pitcherRepository.observePitchers().first() }
+                    .getOrDefault(emptyList())
+                    .associate { it.id to it.name }
+            }
             File(workDir, "pitchlab_sessions.csv").writeText(
-                SessionCsvFormatter.toCsv(selected),
+                SessionCsvFormatter.toCsv(selected, pitcherNames),
                 Charsets.UTF_8
             )
 

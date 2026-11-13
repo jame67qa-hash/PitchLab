@@ -104,6 +104,8 @@ data class CameraUiState(
     val statusMessage: String = "等待相機初始化",
     /** Phase 12：下一球要標記的球種；null = 不標記 */
     val selectedPitchType: PitchType? = null,
+    /** Phase 16：目前投手名稱；null = 未指定（新球會落在未歸檔） */
+    val activePitcherName: String? = null,
     val errorMessage: String? = null,
     val lastRecordingPath: String? = null,
     /** 速度是否已用雷達校準（UI 顯示 CAL / EST） */
